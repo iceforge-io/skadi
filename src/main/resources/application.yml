@@ -14,3 +14,19 @@ management:
     health:
       probes:
         enabled: true
+  aws:
+    region: us-east-1
+    s3:
+      # set to http://localhost:4566 for LocalStack; leave blank in real AWS
+      endpoint: ""
+      # optional: path-style needed for some S3-compatible endpoints (and LocalStack often)
+      pathStyleAccess: true
+
+skadi:
+  aws:
+    region: us-east-2
+    s3:
+      # set to http://localhost:4566 for LocalStack; leave blank in real AWS
+      endpoint: ""
+      # optional: path-style needed for some S3-compatible endpoints (and LocalStack often)
+      pathStyleAccess: true

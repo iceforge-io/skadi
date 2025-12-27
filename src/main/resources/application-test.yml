@@ -1,0 +1,11 @@
+spring:
+  config:
+    activate:
+      on-profile: test
+
+
+aws:
+  s3:
+    perf-test-bucket:
+      name: skadi-query-cache-test-gp-unver
+      arn: arn:aws:s3:::skadi-query-cache-test-gp-unver
