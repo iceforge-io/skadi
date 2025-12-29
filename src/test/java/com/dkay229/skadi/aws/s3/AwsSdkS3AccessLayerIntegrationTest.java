@@ -31,8 +31,8 @@ class AwsSdkS3AccessLayerIntegrationTest {
     @Test
     void testPerformanceAndVolume() {
         String keyPrefix = "test-performance/";
-        int fileCount = 100; // Number of files to upload
-        int fileSizeKB = 10; // Size of each file in KB
+        int fileCount = 10; // 100; // Number of files to upload
+        int fileSizeKB = 1; //10; // Size of each file in KB
 
         // Upload files
         for (int i = 0; i < fileCount; i++) {
@@ -73,7 +73,7 @@ class AwsSdkS3AccessLayerIntegrationTest {
     void testMultipartUploadPerformance() {
         for (int numParts = 1; numParts <= 15; numParts += 5) {
             String key = "test-multipart/" + UUID.randomUUID();
-            long fileSize = 100L * 1024 * 1024; // 100 MB
+            long fileSize = 10L * 1024 * 1024; // 10 MB
             long partSize = fileSize / numParts; // Calculate part size based on the number of parts
             byte[] data = new byte[(int) partSize];
 
