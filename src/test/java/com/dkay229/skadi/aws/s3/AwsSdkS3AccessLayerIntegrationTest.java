@@ -24,6 +24,8 @@ class AwsSdkS3AccessLayerIntegrationTest {
     @Value("${aws.s3.perf-test-bucket.name}")
     private String testBucket;
 
+    @Value("${aws.s3.do-delete-test-s3-objects}")
+    private boolean doDeleteTestS3Objects;
     private final S3Client s3Client = S3Client.create();
 
     @Test
@@ -58,13 +60,15 @@ class AwsSdkS3AccessLayerIntegrationTest {
         assertEquals(fileCount, listResponse.contents().size(), "File count mismatch");
 
         // Clean up
-        for (S3Object object : listResponse.contents()) {
-            s3Client.deleteObject(DeleteObjectRequest.builder()
-                    .bucket(testBucket)
-                    .key(object.key())
-                    .build());
+        if (doDeleteTestS3Objects) {
+            for (S3Object object : listResponse.contents()) {
+                s3Client.deleteObject(DeleteObjectRequest.builder()
+                        .bucket(testBucket)
+                        .key(object.key())
+                        .build());
+            }
         }
-    }
+   }
     @Test
     void testMultipartUploadPerformance() {
         for (int numParts = 1; numParts <= 15; numParts += 5) {
@@ -137,11 +141,12 @@ class AwsSdkS3AccessLayerIntegrationTest {
                 fail("Multipart upload failed for " + numParts + " parts: " + e.getMessage());
             } finally {
                 // Delete the file after the test
-                s3Client.deleteObject(DeleteObjectRequest.builder()
-                        .bucket(testBucket)
-                        .key(key)
-                        .build());
-                System.out.println("Deleted file: " + key);
+                if (doDeleteTestS3Objects) {
+                    s3Client.deleteObject(DeleteObjectRequest.builder()
+                            .bucket(testBucket)
+                            .key(key)
+                            .build());
+                }
             }
         }
     }

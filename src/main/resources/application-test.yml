@@ -17,3 +17,4 @@ aws:
       name: skadi-query-cache-test-gp-unver
       arn: arn:aws:s3:::skadi-query-cache-test-gp-unver
 
+    do-delete-test-s3-objects: true # set to false to leave test objects for debug

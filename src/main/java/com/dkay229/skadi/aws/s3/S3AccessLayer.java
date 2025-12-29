@@ -15,6 +15,8 @@ public interface S3AccessLayer {
 
     // Download
     byte[] getBytes(S3Models.ObjectRef ref);
+
+    // Delegate other methods to the wrapped AwsSdkS3AccessLayer
     InputStream getStream(S3Models.ObjectRef ref); // caller closes
 
     // Metadata / existence
