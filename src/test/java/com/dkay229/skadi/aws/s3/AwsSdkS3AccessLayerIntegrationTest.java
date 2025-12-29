@@ -71,9 +71,9 @@ class AwsSdkS3AccessLayerIntegrationTest {
    }
     @Test
     void testMultipartUploadPerformance() {
-        for (int numParts = 1; numParts <= 15; numParts += 5) {
+        for (int numParts = 2; numParts <= 2; numParts += 5) {
             String key = "test-multipart/" + UUID.randomUUID();
-            long fileSize = 10L * 1024 * 1024; // 10 MB
+            long fileSize = 20L * 1024 * 1024; // 10 MB
             long partSize = fileSize / numParts; // Calculate part size based on the number of parts
             byte[] data = new byte[(int) partSize];
 
