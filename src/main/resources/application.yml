@@ -30,3 +30,6 @@ skadi:
       endpoint: ""
       # optional: path-style needed for some S3-compatible endpoints (and LocalStack often)
       pathStyleAccess: true
+  local:
+    cacheRootDir: ./data/skadi-cache
+    cacheMaxSize: 10Gb # 10 GB

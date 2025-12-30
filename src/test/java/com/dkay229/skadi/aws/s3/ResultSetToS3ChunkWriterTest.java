@@ -13,7 +13,7 @@ class ResultSetToS3ChunkWriterTest {
 
     private static Connection connection;
     private ResultSetToS3ChunkWriter writer;
-    private S3AccessLayer mockS3;
+    private AwsSdkS3AccessLayer mockS3;
 
     @BeforeAll
     static void setupDatabase() throws Exception {
@@ -29,7 +29,7 @@ class ResultSetToS3ChunkWriterTest {
 
     @BeforeEach
     void setup() {
-        mockS3 = Mockito.mock(S3AccessLayer.class);
+        mockS3 = Mockito.mock(AwsSdkS3AccessLayer.class);
         writer = new ResultSetToS3ChunkWriter(mockS3);
     }
 

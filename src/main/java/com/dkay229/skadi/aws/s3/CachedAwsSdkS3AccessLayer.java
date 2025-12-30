@@ -1,7 +1,11 @@
 package com.dkay229.skadi.aws.s3;
 
+import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -13,20 +17,47 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 
+@Service
 public class CachedAwsSdkS3AccessLayer implements S3AccessLayer {
     private static final Logger logger = LoggerFactory.getLogger(CachedAwsSdkS3AccessLayer.class);
+    private final ConcurrentHashMap<Path, CacheMetadata> metadataMap = new ConcurrentHashMap<>();
     private final AwsSdkS3AccessLayer delegate;
-    private final Path cacheDir;
-    private final long maxCapacityBytes;
+
+
     private long currentCacheSize;
 
-    public CachedAwsSdkS3AccessLayer(AwsSdkS3AccessLayer delegate, Path cacheDir, long maxCapacityBytes) {
-        this.delegate = delegate;
-        this.cacheDir = cacheDir;
-        this.maxCapacityBytes = maxCapacityBytes;
-        this.currentCacheSize = calculateCurrentCacheSize();
+    @Value("${skadi.local.cacheMaxSize}")
+    private String cacheMaxSize="9";
+    private long maxCapacityBytes;
 
+    @Value("${skadi.local.cacheRootDir}")
+    private String cacheRootDir;
+    private Path cacheDir;
+
+    @Autowired
+    public CachedAwsSdkS3AccessLayer(AwsSdkS3AccessLayer delegate) {
+        this.delegate = delegate;
+    }
+    /** used only by non-spring tests **/
+    public CachedAwsSdkS3AccessLayer(AwsSdkS3AccessLayer delegate,String cacheMaxSize,String cacheRootDir) {
+        this.delegate = delegate;
+        this.cacheMaxSize=cacheMaxSize;
+        this.cacheRootDir=cacheRootDir;
+        init();
+    }
+
+    public ConcurrentHashMap<Path, CacheMetadata> getMetadataMap() {
+        return metadataMap;
+    }
+
+    @PostConstruct
+    public void init() {
+        this.maxCapacityBytes = DataSizeExpressionEvaluator.evaluate(cacheMaxSize);
+        logger.info("Initialized cache with max capacity: {} bytes from property value {}", maxCapacityBytes, cacheMaxSize);
+        this.cacheDir= Path.of(this.cacheRootDir);
+        logger.info("Cache directory set to: {}", cacheDir);
         try {
             Files.createDirectories(cacheDir);
         } catch (IOException e) {
@@ -38,17 +69,16 @@ public class CachedAwsSdkS3AccessLayer implements S3AccessLayer {
     public byte[] getBytes(S3Models.ObjectRef ref) {
         Path cacheFile = cacheDir.resolve(ref.bucket() + "_" + ref.key().replace("/", "_"));
 
-        // Check cache
         if (Files.exists(cacheFile)) {
             try {
                 logger.info("Cache hit for s3://{}/{}", ref.bucket(), ref.key());
+                metadataMap.get(cacheFile).addAccessTime(); // Update metadata
                 return Files.readAllBytes(cacheFile);
             } catch (IOException e) {
                 logger.warn("Failed to read cache file: {}", cacheFile, e);
             }
         }
 
-        // Fetch from S3 and cache
         byte[] data = delegate.getBytes(ref);
         cacheData(cacheFile, data);
         return data;
@@ -59,6 +89,7 @@ public class CachedAwsSdkS3AccessLayer implements S3AccessLayer {
             evictIfNeeded(data.length);
             Files.write(cacheFile, data);
             currentCacheSize += data.length;
+            metadataMap.put(cacheFile, new CacheMetadata()); // Add metadata
             logger.info("Cached s3://{} to {}", cacheFile.getFileName(), cacheFile);
         } catch (IOException e) {
             logger.warn("Failed to write cache file: {}", cacheFile, e);
@@ -136,7 +167,7 @@ public class CachedAwsSdkS3AccessLayer implements S3AccessLayer {
             long fileSize = Files.size(cacheFile);
             Files.deleteIfExists(cacheFile);
             currentCacheSize -= fileSize;
-            logger.info("Deleted cache for s3://{}/{}", ref.bucket(), ref.key());
+            logger.info("Deleted cache file {} for s3://{}/{}",cacheFile,ref.bucket(), ref.key());
         } catch (IOException e) {
             logger.warn("Failed to delete cache file: {}", cacheFile, e);
         }

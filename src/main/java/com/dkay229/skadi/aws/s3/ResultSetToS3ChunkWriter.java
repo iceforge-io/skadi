@@ -43,7 +43,7 @@ public class ResultSetToS3ChunkWriter {
     private final S3AccessLayer s3;
 
     @Autowired
-    public ResultSetToS3ChunkWriter(S3AccessLayer s3) {
+    public ResultSetToS3ChunkWriter(AwsSdkS3AccessLayer s3) {
         this.s3 = Objects.requireNonNull(s3);
     }
 
