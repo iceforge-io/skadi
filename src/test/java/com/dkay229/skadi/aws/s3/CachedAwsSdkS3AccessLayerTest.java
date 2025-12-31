@@ -51,13 +51,20 @@ class CachedAwsSdkS3AccessLayerTest {
     void testGetBytes_CacheMiss() throws Exception {
         S3Models.ObjectRef ref = new S3Models.ObjectRef("test-bucket", "test-key2");
         byte[] s3Data = "s3-data".getBytes();
-        when(mockDelegate.getBytes(any())).thenReturn(s3Data);
+        ByteArrayInputStream s3DataBis = new ByteArrayInputStream(s3Data);
+        when(mockDelegate.getStream(any())).thenReturn(s3DataBis);
+
 
         byte[] result = cachedLayer.getBytes(ref);
 
         assertArrayEquals(s3Data, result);
-        assertTrue(Files.exists(cacheDir.resolve("test-bucket_test-key2")));
-        verify(mockDelegate, times(1)).getBytes(ref);
+        String id = CacheKeyUtil.cacheId(ref.bucket(), ref.key());
+        Path expected = cacheDir
+                .resolve(id.substring(0, 2))
+                .resolve(id + ".bin");
+
+        assertTrue(Files.exists(expected));
+        verify(mockDelegate, times(1)).getStream(ref);
     }
 
     @Test
