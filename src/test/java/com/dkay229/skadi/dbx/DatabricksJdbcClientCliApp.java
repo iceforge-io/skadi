@@ -43,7 +43,8 @@ public class DatabricksJdbcClientCliApp {
     public static void main(String[] args) throws Exception {
         String url = "jdbc:databricks://dbc-ccf13444-2e7e.cloud.databricks.com:443;HttpPath=/sql/1.0/warehouses/08521a3bfdd61498";
         Properties properties = new Properties();
-        properties.put("PWD", "dapi644555d5403b91fbe6f5458e3ba7928b");
+        // dapi644555d5403b91fbe6f5458e3ba7928b
+        //properties.put("PWD",);
         try (Connection connection = DriverManager.getConnection(url, properties)) {
             if (connection != null) {
                 Statement statement = connection.createStatement();
