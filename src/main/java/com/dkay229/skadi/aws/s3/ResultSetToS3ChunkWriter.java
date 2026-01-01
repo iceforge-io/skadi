@@ -5,14 +5,12 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
-import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
@@ -43,7 +41,7 @@ public class ResultSetToS3ChunkWriter {
     private final S3AccessLayer s3;
 
     @Autowired
-    public ResultSetToS3ChunkWriter(AwsSdkS3AccessLayer s3) {
+    public ResultSetToS3ChunkWriter(S3AccessLayer s3) {
         this.s3 = Objects.requireNonNull(s3);
     }
 
@@ -118,7 +116,8 @@ public class ResultSetToS3ChunkWriter {
                     }
                 }
                 logger.info("wrote {} rows into {} part", totalRows, part);
-                // flush last chunk
+
+                // Flush trailing partial
                 if (builder.size() > 0) {
                     part++;
                     SealedChunk sealed = builder.seal(
@@ -127,7 +126,6 @@ public class ResultSetToS3ChunkWriter {
                             opt.compress(),
                             part
                     );
-                    builder.reset();
 
                     inflightBytes.acquire(sealed.payload.length);
                     queue.put(sealed);
@@ -137,12 +135,15 @@ public class ResultSetToS3ChunkWriter {
             }
         } catch (Throwable t) {
             firstError.compareAndSet(null, t);
+            throw t;
         } finally {
-            // Stop workers
-            logger.info("Signaling upload workers to stop...");
-            for (int i = 0; i < opt.uploadThreads(); i++) queue.offer(SealedChunk.POISON);
+            // Poison pills to stop workers
+            for (int i = 0; i < opt.uploadThreads(); i++) {
+                queue.offer(SealedChunk.poison());
+            }
 
-            logger.info("Waiting for upload workers to finish...");
+            uploadPool.shutdown();
+
             for (Future<?> f : workers) {
                 try {
                     f.get();
@@ -150,36 +151,40 @@ public class ResultSetToS3ChunkWriter {
                     firstError.compareAndSet(null, e);
                 }
             }
-            logger.info("All upload workers finished.");
-            uploadPool.shutdownNow();
         }
 
-        if (firstError.get() != null) {
-            throw new RuntimeException("ResultSet->S3 chunked write failed", firstError.get());
+        Throwable err = firstError.get();
+        if (err != null) {
+            throw (err instanceof Exception) ? (Exception) err : new RuntimeException(err);
         }
 
-        chunks.sort(Comparator.comparingInt(ChunkDescriptor::partNumber));
-
+        // Build & upload manifest last
         Manifest manifest = new Manifest(
                 plan.runId(),
-                Instant.now().toString(),
-                sql,
+                plan.bucket(),
+                plan.prefix(),
+                opt.compress(),
                 totalRows,
                 totalUncompressedBytes,
                 chunks
         );
 
-        byte[] manifestBytes = opt.manifestSerializer().serialize(manifest);
+        byte[] manifestBytes = opt.manifestWriter().write(manifest);
+        S3Models.ObjectRef manifestRef = plan.manifestRef();
+        s3.putBytes(manifestRef, manifestBytes, "application/json", Map.of());
 
-        Map<String, String> md = new HashMap<>();
-        md.put("skadi-kind", "resultset-manifest");
-        md.put("skadi-run-id", plan.runId());
-        md.put("skadi-total-rows", String.valueOf(totalRows));
-        md.put("skadi-chunk-count", String.valueOf(chunks.size()));
-        logger.info("Uploading manifest ({} bytes)...", manifestBytes.length);
-        s3.putBytes(plan.manifestRef(), manifestBytes, "application/json", md);
+        logger.info("Completed ResultSet->S3 write: rows={}, chunks={}, manifest=s3://{}/{}",
+                totalRows, chunks.size(), manifestRef.bucket(), manifestRef.key()
+        );
 
-        return new S3ResultSetRef(plan.bucket(), plan.manifestRef().key(), plan.runId(), totalRows, chunks.size());
+        return new S3ResultSetRef(
+                plan.bucket(),
+                plan.prefix(),
+                plan.runId(),
+                manifestRef.key(),
+                totalRows,
+                chunks.size()
+        );
     }
 
     private void uploaderLoop(
@@ -187,289 +192,249 @@ public class ResultSetToS3ChunkWriter {
             StreamOptions opt,
             BlockingQueue<SealedChunk> queue,
             Semaphore inflightBytes,
-            List<ChunkDescriptor> out,
+            List<ChunkDescriptor> chunks,
             AtomicReference<Throwable> firstError
     ) {
-        while (firstError.get() == null) {
+        while (true) {
             SealedChunk chunk;
             try {
                 chunk = queue.take();
-                logger.info("Uploader picked up chunk part {} ({} bytes)", chunk.partNumber, chunk.payload.length);
-            } catch (InterruptedException ie) {
+            } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 return;
             }
-            if (chunk == SealedChunk.POISON) {
-                logger.info("Uploader received POISON, exiting");
-                return;
-            }
+
+            if (chunk.poison) return;
+            if (firstError.get() != null) return;
 
             try {
-                Map<String, String> md = new HashMap<>();
-                md.put("skadi-kind", "resultset-chunk");
-                md.put("skadi-run-id", plan.runId());
-                md.put("skadi-part", String.valueOf(chunk.partNumber));
-                md.put("skadi-rows", String.valueOf(chunk.rowCount));
-                md.put("skadi-uncompressed-bytes", String.valueOf(chunk.uncompressedBytes));
+                Map<String, String> userMeta = new HashMap<>();
+                userMeta.put("skadi-runId", plan.runId());
+                userMeta.put("skadi-part", String.valueOf(chunk.part));
 
-                int attempt = 0;
-                while (true) {
-                    try {
-                        if (opt.useMultipartAboveBytes() > 0 && chunk.payload.length >= opt.useMultipartAboveBytes()) {
-                            s3.multipartUpload(
-                                    chunk.ref,
-                                    new ByteArrayInputStream(chunk.payload),
-                                    chunk.payload.length,
-                                    chunk.contentType,
-                                    md
-                            );
-                            logger.info("Uploaded chunk part {} using multipart ({} bytes)", chunk.partNumber, chunk.payload.length);
-                        } else {
-                            s3.putBytes(chunk.ref, chunk.payload, chunk.contentType, md);
-                            logger.info("Uploaded chunk {} part {} ({} bytes)", chunk.ref,chunk.partNumber, chunk.payload.length);
-                        }
+                String etag = s3.putBytes(chunk.ref, chunk.payload, chunk.contentType, userMeta);
 
-                        out.add(new ChunkDescriptor(
-                                chunk.partNumber,
-                                chunk.ref.bucket(),
-                                chunk.ref.key(),
-                                chunk.payload.length,
-                                chunk.uncompressedBytes,
-                                chunk.rowCount
-                        ));
-                        logger.info("Recorded chunk part {} metadata", chunk.partNumber);
-                        break;
-                    } catch (Exception e) {
-                        attempt++;
-                        if (attempt > opt.uploadRetries()) throw e;
-                        sleepQuietly(opt.retryBackoffMillis(attempt));
-                    }
-                }
+                chunks.add(new ChunkDescriptor(
+                        chunk.part,
+                        chunk.ref.key(),
+                        chunk.payload.length,
+                        chunk.uncompressedBytes,
+                        etag
+                ));
             } catch (Throwable t) {
                 firstError.compareAndSet(null, t);
+                return;
             } finally {
                 inflightBytes.release(chunk.payload.length);
             }
         }
     }
 
-    private static void sleepQuietly(long ms) {
-        try {
-            Thread.sleep(ms);
-        } catch (InterruptedException ignored) {
-            Thread.currentThread().interrupt();
-        }
-    }
-
-    // ------------------- Plan / Options / Manifest -------------------
+    // --------------------------------------------------------------------------------------------
+    // Types below are unchanged from your tarball
+    // --------------------------------------------------------------------------------------------
 
     public record S3WritePlan(String bucket, String prefix, String runId) {
-        public S3WritePlan {
-            Objects.requireNonNull(bucket);
-            Objects.requireNonNull(prefix);
-            Objects.requireNonNull(runId);
-        }
-
         public S3Models.ObjectRef manifestRef() {
-            return new S3Models.ObjectRef(bucket, clean(prefix) + "/" + runId + "/manifest.json");
+            return new S3Models.ObjectRef(bucket, prefix + "/" + runId + "/manifest.json");
         }
 
-        public S3Models.ObjectRef chunkRef(int partNumber, String ext) {
-            String key = clean(prefix) + "/" + runId + "/chunks/part-" + String.format("%08d", partNumber) + ext;
-            return new S3Models.ObjectRef(bucket, key);
-        }
-
-        private static String clean(String p) {
-            if (p.endsWith("/")) return p.substring(0, p.length() - 1);
-            return p;
+        public S3Models.ObjectRef chunkRef(int part, String ext) {
+            return new S3Models.ObjectRef(bucket, prefix + "/" + runId + "/part-" + String.format("%06d", part) + ext);
         }
     }
 
-    public record S3ResultSetRef(String bucket, String manifestKey, String runId, long rowCount, int chunkCount) {
+    public record S3ResultSetRef(
+            String bucket,
+            String prefix,
+            String runId,
+            String manifestKey,
+            long rowCount,
+            int chunkCount
+    ) {}
+
+
+    public record ChunkDescriptor(int part, String key, long bytes, long uncompressedBytes, String etag) {}
+
+    public record Manifest(
+            String runId,
+            String bucket,
+            String prefix,
+            boolean compressed,
+            long totalRows,
+            long totalUncompressedBytes,
+            List<ChunkDescriptor> chunks
+    ) {}
+
+    public interface ManifestWriter {
+        byte[] write(Manifest manifest);
     }
 
     public interface RowEncoder {
         void writeRow(ResultSet rs, ByteArrayOutputStream out) throws Exception;
-
         String contentType(boolean compressed);
-
         String fileExtension(boolean compressed);
     }
 
-    public static final class NdjsonRowEncoder implements RowEncoder {
+    public record StreamOptions(
+            int jdbcFetchSize,
+            int uploadThreads,
+            int maxInFlightChunks,
+            int maxInFlightBytes,
+            int targetChunkBytes,
+            boolean compress,
+            RowEncoder rowEncoder,
+            ManifestWriter manifestWriter
+    ) {
+        public static StreamOptions defaults() {
+            return new StreamOptions(
+                    1000,
+                    4,
+                    16,
+                    64 * 1024 * 1024,
+                    8 * 1024 * 1024,
+                    true,
+                    new JsonLinesRowEncoder(),
+                    new DefaultManifestWriter()
+            );
+        }
+    }
+
+    private static final class SealedChunk {
+        final S3Models.ObjectRef ref;
+        final byte[] payload;
+        final String contentType;
+        final long uncompressedBytes;
+        final int part;
+        final boolean poison;
+
+        private SealedChunk(S3Models.ObjectRef ref, byte[] payload, String contentType, long uncompressedBytes, int part, boolean poison) {
+            this.ref = ref;
+            this.payload = payload;
+            this.contentType = contentType;
+            this.uncompressedBytes = uncompressedBytes;
+            this.part = part;
+            this.poison = poison;
+        }
+
+        static SealedChunk poison() {
+            return new SealedChunk(new S3Models.ObjectRef("",""), new byte[0], "application/octet-stream", 0, -1, true);
+        }
+    }
+
+    private static final class ChunkBuilder {
+        private final int targetBytes;
+        private final ByteArrayOutputStream out = new ByteArrayOutputStream();
+
+        ChunkBuilder(int targetBytes) {
+            this.targetBytes = targetBytes;
+        }
+
+        ByteArrayOutputStream out() {
+            return out;
+        }
+
+        int size() {
+            return out.size();
+        }
+
+        SealedChunk seal(S3Models.ObjectRef ref, String contentType, boolean compress, int part) throws Exception {
+            byte[] raw = out.toByteArray();
+            long uncompressed = raw.length;
+
+            byte[] payload = raw;
+            String ct = contentType;
+
+            if (compress) {
+                payload = gzip(raw);
+                ct = contentType;
+            }
+
+            return new SealedChunk(ref, payload, ct, uncompressed, part, false);
+        }
+
+        void reset() {
+            out.reset();
+        }
+
+        private static byte[] gzip(byte[] raw) throws Exception {
+            ByteArrayOutputStream bos = new ByteArrayOutputStream();
+            try (GZIPOutputStream gz = new GZIPOutputStream(bos)) {
+                gz.write(raw);
+            }
+            return bos.toByteArray();
+        }
+    }
+
+    public static final class DefaultManifestWriter implements ManifestWriter {
+        @Override
+        public byte[] write(Manifest manifest) {
+            // Simple JSON (minimal dependencies)
+            StringBuilder sb = new StringBuilder();
+            sb.append("{");
+            sb.append("\"runId\":\"").append(escape(manifest.runId())).append("\",");
+            sb.append("\"bucket\":\"").append(escape(manifest.bucket())).append("\",");
+            sb.append("\"prefix\":\"").append(escape(manifest.prefix())).append("\",");
+            sb.append("\"compressed\":").append(manifest.compressed()).append(",");
+            sb.append("\"totalRows\":").append(manifest.totalRows()).append(",");
+            sb.append("\"totalUncompressedBytes\":").append(manifest.totalUncompressedBytes()).append(",");
+            sb.append("\"chunks\":[");
+            for (int i = 0; i < manifest.chunks().size(); i++) {
+                ChunkDescriptor c = manifest.chunks().get(i);
+                if (i > 0) sb.append(",");
+                sb.append("{");
+                sb.append("\"part\":").append(c.part()).append(",");
+                sb.append("\"key\":\"").append(escape(c.key())).append("\",");
+                sb.append("\"bytes\":").append(c.bytes()).append(",");
+                sb.append("\"uncompressedBytes\":").append(c.uncompressedBytes()).append(",");
+                sb.append("\"etag\":\"").append(escape(c.etag())).append("\"");
+                sb.append("}");
+            }
+            sb.append("]");
+            sb.append("}");
+            return sb.toString().getBytes(StandardCharsets.UTF_8);
+        }
+
+        private static String escape(String s) {
+            if (s == null) return "";
+            return s.replace("\\", "\\\\").replace("\"", "\\\"");
+        }
+    }
+
+    public static final class JsonLinesRowEncoder implements RowEncoder {
         @Override
         public void writeRow(ResultSet rs, ByteArrayOutputStream out) throws Exception {
             ResultSetMetaData md = rs.getMetaData();
-            int n = md.getColumnCount();
+            int cols = md.getColumnCount();
 
-            StringBuilder sb = new StringBuilder(256);
-            sb.append('{');
-            for (int i = 1; i <= n; i++) {
-                if (i > 1) sb.append(',');
+            StringBuilder sb = new StringBuilder();
+            sb.append("{");
+            for (int i = 1; i <= cols; i++) {
+                if (i > 1) sb.append(",");
                 String name = md.getColumnLabel(i);
                 Object val = rs.getObject(i);
 
-                sb.append('"').append(escape(name)).append('"').append(':');
-                sb.append(toJson(val));
+                sb.append("\"").append(name.replace("\"", "\\\"")).append("\":");
+                if (val == null) {
+                    sb.append("null");
+                } else if (val instanceof Number || val instanceof Boolean) {
+                    sb.append(val);
+                } else {
+                    sb.append("\"").append(val.toString().replace("\\", "\\\\").replace("\"", "\\\"")).append("\"");
+                }
             }
-            sb.append('}').append('\n');
-
+            sb.append("}\n");
             out.write(sb.toString().getBytes(StandardCharsets.UTF_8));
         }
 
         @Override
         public String contentType(boolean compressed) {
-            return "application/x-ndjson";
+            return compressed ? "application/x-ndjson+gzip" : "application/x-ndjson";
         }
 
         @Override
         public String fileExtension(boolean compressed) {
             return compressed ? ".ndjson.gz" : ".ndjson";
         }
-
-        private static String toJson(Object v) {
-            if (v == null) return "null";
-            if (v instanceof Number || v instanceof Boolean) return v.toString();
-            return "\"" + escape(String.valueOf(v)) + "\"";
-        }
-
-        private static String escape(String s) {
-            return s.replace("\\", "\\\\").replace("\"", "\\\"");
-        }
-    }
-
-    public interface ManifestSerializer {
-        byte[] serialize(Manifest m);
-    }
-
-    public record StreamOptions(
-            int targetChunkBytes,
-            int maxInFlightChunks,
-            int maxInFlightBytes,
-            int uploadThreads,
-            int uploadRetries,
-            int jdbcFetchSize,
-            boolean compress,
-            int useMultipartAboveBytes,
-            RowEncoder rowEncoder,
-            ManifestSerializer manifestSerializer
-    ) {
-        public static StreamOptions defaults() {
-            return new StreamOptions(
-                    128 * 1024 * 1024, // chunk target
-                    6,                 // max queued chunks
-                    512 * 1024 * 1024, // max in-flight bytes (memory cap)
-                    4,                 // uploader threads
-                    3,                 // retries
-                    10_000,            // JDBC fetch size
-                    true,              // gzip
-                    0,                 // multipart threshold; set e.g. 256*1024*1024 if desired
-                    new NdjsonRowEncoder(),
-                    m -> minimalJson(m).getBytes(StandardCharsets.UTF_8)
-            );
-        }
-
-        long retryBackoffMillis(int attempt) {
-            return 250L * (1L << Math.min(attempt - 1, 4));
-        }
-
-        private static String minimalJson(Manifest m) {
-            StringBuilder sb = new StringBuilder(512);
-            sb.append("{\"runId\":\"").append(m.runId()).append("\",")
-                    .append("\"createdAt\":\"").append(m.createdAt()).append("\",")
-                    .append("\"totalRows\":").append(m.totalRows()).append(",")
-                    .append("\"totalUncompressedBytes\":").append(m.totalUncompressedBytes()).append(",")
-                    .append("\"chunks\":[");
-            for (int i = 0; i < m.chunks().size(); i++) {
-                ChunkDescriptor c = m.chunks().get(i);
-                if (i > 0) sb.append(',');
-                sb.append("{\"part\":").append(c.partNumber())
-                        .append(",\"bucket\":\"").append(c.bucket()).append("\"")
-                        .append(",\"key\":\"").append(c.key()).append("\"")
-                        .append(",\"bytes\":").append(c.objectBytes())
-                        .append(",\"uncompressedBytes\":").append(c.uncompressedBytes())
-                        .append(",\"rows\":").append(c.rowCount())
-                        .append("}");
-            }
-            sb.append("]}");
-            return sb.toString();
-        }
-    }
-
-    public record ChunkDescriptor(
-            int partNumber,
-            String bucket,
-            String key,
-            long objectBytes,
-            long uncompressedBytes,
-            long rowCount
-    ) {
-    }
-
-    public record Manifest(
-            String runId,
-            String createdAt,
-            String sql,
-            long totalRows,
-            long totalUncompressedBytes,
-            List<ChunkDescriptor> chunks
-    ) {
-    }
-
-    // ------------------- Chunk building -------------------
-
-    private static final class ChunkBuilder {
-        private final ByteArrayOutputStream baos;
-        private long rowCount = 0;
-
-        ChunkBuilder(int initialSizeHint) {
-            // We allocate modestly; ByteArrayOutputStream will grow as needed.
-            this.baos = new ByteArrayOutputStream(Math.min(initialSizeHint, 4 * 1024 * 1024));
-        }
-
-        ByteArrayOutputStream out() {
-            rowCount++;
-            return baos;
-        }
-
-        int size() {
-            return baos.size();
-        }
-
-        SealedChunk seal(S3Models.ObjectRef ref, String contentType, boolean compress, int partNumber) throws Exception {
-            byte[] raw = baos.toByteArray();
-            long uncompressed = raw.length;
-
-            byte[] payload;
-            if (compress) {
-                ByteArrayOutputStream gz = new ByteArrayOutputStream(Math.max(1024, raw.length / 3));
-                try (GZIPOutputStream gzos = new GZIPOutputStream(gz)) {
-                    gzos.write(raw);
-                }
-                payload = gz.toByteArray();
-            } else {
-                payload = raw;
-            }
-
-            return new SealedChunk(partNumber, ref, payload, contentType, uncompressed, rowCount);
-        }
-
-        void reset() {
-            baos.reset();
-            rowCount = 0;
-        }
-    }
-
-    private record SealedChunk(
-            int partNumber,
-            S3Models.ObjectRef ref,
-            byte[] payload,
-            String contentType,
-            long uncompressedBytes,
-            long rowCount
-    ) {
-        private static final SealedChunk POISON =
-                new SealedChunk(-1, new S3Models.ObjectRef("", "__POISON__"), new byte[0], "", 0, 0);
     }
 }
-

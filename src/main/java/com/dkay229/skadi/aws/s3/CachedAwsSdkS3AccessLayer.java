@@ -5,6 +5,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -19,6 +20,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import static java.nio.file.StandardOpenOption.*;
 
 @Service
+@Primary
 public class CachedAwsSdkS3AccessLayer implements S3AccessLayer {
     private static final Logger logger = LoggerFactory.getLogger(CachedAwsSdkS3AccessLayer.class);
 
@@ -331,6 +333,7 @@ public class CachedAwsSdkS3AccessLayer implements S3AccessLayer {
             return 0;
         }
     }
+
     private Path metaPath(Path dataPath) {
         // .../xx/<id>.bin -> .../xx/<id>.meta
         String s = dataPath.toString();
@@ -382,6 +385,7 @@ public class CachedAwsSdkS3AccessLayer implements S3AccessLayer {
             logger.warn("Failed to delete cache file: {}", cacheFile, e);
         }
     }
+
     public Optional<CacheEntryMeta> readLocalMeta(S3Models.ObjectRef ref) {
         Path p = cachePath(ref);
         if (!Files.exists(p)) return Optional.empty();
@@ -402,7 +406,57 @@ public class CachedAwsSdkS3AccessLayer implements S3AccessLayer {
 
     @Override
     public String putBytes(S3Models.ObjectRef ref, byte[] bytes, String contentType, Map<String, String> userMetadata) {
-        return delegate.putBytes(ref, bytes, contentType, userMetadata);
+        Objects.requireNonNull(ref, "ref");
+        Objects.requireNonNull(bytes, "bytes");
+
+        // 1) Commit to S3 first: local cache should mirror shared source of truth.
+        String etag = delegate.putBytes(ref, bytes, contentType, userMetadata);
+
+        // 2) Best-effort: warm local cache (do NOT fail the PUT if cache update fails).
+        String lockKey = ref.bucket() + ":" + ref.key();
+        Object lock = locks.computeIfAbsent(lockKey, k -> new Object());
+
+        synchronized (lock) {
+            Path cacheFile = cachePath(ref);
+            try {
+                ensureParentDir(cacheFile);
+
+                long oldSize = 0;
+                if (Files.exists(cacheFile)) {
+                    try {
+                        oldSize = Files.size(cacheFile);
+                    } catch (IOException ignore) {
+                        oldSize = 0;
+                    }
+                }
+
+                // temp file in same dir for atomic-ish move
+                Path tmp = cacheFile.getParent().resolve(cacheFile.getFileName().toString() + ".tmp-" + UUID.randomUUID());
+                try {
+                    Files.write(tmp, bytes, CREATE, TRUNCATE_EXISTING, WRITE);
+                } catch (Exception e) {
+                    Files.deleteIfExists(tmp);
+                    throw e;
+                }
+
+                long newSize = bytes.length;
+                long delta = newSize - oldSize;
+                if (delta > 0) {
+                    evictIfNeeded(delta);
+                }
+
+                moveAtomically(tmp, cacheFile);
+
+                currentCacheSize += delta; // delta can be negative if overwriting with smaller
+                metadataMap.put(cacheFile, new CacheMetadata());
+                writeMeta(cacheFile, new CacheEntryMeta(ref.bucket(), ref.key(), newSize, java.time.Instant.now(), "PUT"));
+                logger.info("Cached from PUT to {} ({} bytes) for s3://{}/{}", cacheFile, newSize, ref.bucket(), ref.key());
+            } catch (Exception e) {
+                logger.warn("S3 put succeeded but failed to update local cache for s3://{}/{}", ref.bucket(), ref.key(), e);
+            }
+        }
+
+        return etag;
     }
 
     @Override
