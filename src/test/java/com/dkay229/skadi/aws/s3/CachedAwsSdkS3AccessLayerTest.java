@@ -237,14 +237,29 @@ class CachedAwsSdkS3AccessLayerTest {
         byte[] peerBytes = "from-peer".getBytes(StandardCharsets.UTF_8);
 
         // HEAD reports size, then GET streams to tmp path
-        when(peerClient.headLength(eq("http://peer-a"), eq(ref.bucket()), eq(ref.key()), any(), any()))
+// in `getBytes_peerHit_pullsFromPeer_writesLocalBinAndMeta_withoutCallingDelegate()`
+        when(peerClient.headLength(
+                anyString(),                  // or eq("http://peer-b") if that is what code uses
+                eq(ref.bucket()),
+                eq(ref.key()),
+                any(),                        // PeerSignedHeaders matcher
+                any()))                       // Duration matcher
                 .thenReturn(Optional.of((long) peerBytes.length));
 
-        when(peerClient.streamToFile(eq("http://peer-a"), eq(ref.bucket()), eq(ref.key()), any(), any(Path.class), any()))
+        when(peerClient.streamToFile(
+                anyString(),
+                eq(ref.bucket()),
+                eq(ref.key()),
+                any(),
+                any(Path.class),
+                any()))
                 .thenAnswer(inv -> {
                     Path tmp = inv.getArgument(4, Path.class);
                     Files.createDirectories(tmp.getParent());
-                    Files.write(tmp, peerBytes, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
+                    Files.write(tmp, peerBytes,
+                            StandardOpenOption.CREATE,
+                            StandardOpenOption.TRUNCATE_EXISTING,
+                            StandardOpenOption.WRITE);
                     return true;
                 });
 
