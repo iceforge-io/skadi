@@ -335,4 +335,53 @@ class CachedAwsSdkS3AccessLayerTest {
         verify(delegate, times(1)).copy(ref, ref2);
         verify(delegate, times(1)).list("bucket", "pre", 10);
     }
+
+    @Test
+    void eviction_isLRU_accessingOlderEntry_makesItMostRecent_soDifferentFileEvicted() throws Exception {
+        // Cache size: 10 bytes so two 5-byte objects fit; third forces eviction.
+        CachedAwsSdkS3AccessLayer tiny = new CachedAwsSdkS3AccessLayer(delegate, peerClient);
+        setField(tiny, "cacheMaxSize", "10");
+        setField(tiny, "cacheRootDir", cacheDir.toString());
+        tiny.init();
+
+        S3Models.ObjectRef ref1 = new S3Models.ObjectRef("lru-bucket", "k1");
+        S3Models.ObjectRef ref2 = new S3Models.ObjectRef("lru-bucket", "k2");
+        S3Models.ObjectRef ref3 = new S3Models.ObjectRef("lru-bucket", "k3");
+
+        byte[] data1 = "12345".getBytes(StandardCharsets.UTF_8); // 5 bytes
+        byte[] data2 = "67890".getBytes(StandardCharsets.UTF_8); // 5 bytes
+        byte[] data3 = "abcde".getBytes(StandardCharsets.UTF_8); // 5 bytes -> triggers eviction
+
+        when(delegate.getStream(ref1)).thenReturn(new ByteArrayInputStream(data1));
+        when(delegate.getStream(ref2)).thenReturn(new ByteArrayInputStream(data2));
+        when(delegate.getStream(ref3)).thenReturn(new ByteArrayInputStream(data3));
+
+        // Cache ref1 and ref2 (should NOT evict at capacity 10).
+        assertArrayEquals(data1, tiny.getBytes(ref1));
+        assertArrayEquals(data2, tiny.getBytes(ref2));
+
+        Path bin1 = expectedCachePath(cacheDir, ref1);
+        Path bin2 = expectedCachePath(cacheDir, ref2);
+
+        assertTrue(Files.exists(bin1), "ref1 should exist after caching");
+        assertTrue(Files.exists(bin2), "ref2 should exist after caching");
+
+        // Make timestamps deterministic: bin1 older, bin2 newer
+        Files.setLastModifiedTime(bin1, FileTime.from(Instant.now().minusSeconds(20)));
+        Files.setLastModifiedTime(bin2, FileTime.from(Instant.now().minusSeconds(10)));
+
+        // Access ref1 again: LRU should touch bin1 making it newest
+        assertArrayEquals(data1, tiny.getBytes(ref1));
+
+        // Add ref3 => forces eviction of least-recently-used (bin2) if touch() is implemented
+        assertArrayEquals(data3, tiny.getBytes(ref3));
+
+        Path bin3 = expectedCachePath(cacheDir, ref3);
+        assertTrue(Files.exists(bin3), "ref3 should exist");
+
+        assertTrue(Files.exists(bin1), "ref1 should remain because it was recently accessed (LRU)");
+        assertFalse(Files.exists(bin2), "ref2 should be evicted because it is least recently used");
+    }
+
+
 }

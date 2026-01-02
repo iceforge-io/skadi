@@ -13,7 +13,9 @@ import java.io.InputStream;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
+import java.nio.file.attribute.FileTime;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -129,6 +131,7 @@ public class CachedAwsSdkS3AccessLayer implements S3AccessLayer {
                     logger.info("Local cache hit for s3://{}/{}", ref.bucket(), ref.key());
                     metadataMap.computeIfAbsent(cacheFile, p -> new CacheMetadata()).addAccessTime();
                     validateMetaOrWarn(ref, cacheFile);
+                    touch(cacheFile);
                     return Files.newInputStream(cacheFile);
                 } catch (IOException e) {
                     logger.warn("Failed to open cached stream: {}", cacheFile, e);
@@ -140,6 +143,7 @@ public class CachedAwsSdkS3AccessLayer implements S3AccessLayer {
                 try {
                     logger.info("Peer cache hit (pulled locally) for s3://{}/{}", ref.bucket(), ref.key());
                     metadataMap.computeIfAbsent(cacheFile, p -> new CacheMetadata()).addAccessTime();
+                    touch(cacheFile);
                     return Files.newInputStream(cacheFile);
                 } catch (IOException e) {
                     logger.warn("Failed to open cached stream after peer pull: {}", cacheFile, e);
@@ -150,6 +154,7 @@ public class CachedAwsSdkS3AccessLayer implements S3AccessLayer {
             try {
                 pullFromS3ToLocal(ref, cacheFile);
                 metadataMap.computeIfAbsent(cacheFile, p -> new CacheMetadata()).addAccessTime();
+                touch(cacheFile);
                 return Files.newInputStream(cacheFile);
             } catch (IOException e) {
                 throw new RuntimeException("Failed to fetch and cache s3://" + ref.bucket() + "/" + ref.key(), e);
@@ -181,6 +186,13 @@ public class CachedAwsSdkS3AccessLayer implements S3AccessLayer {
         writeMeta(cacheFile, new CacheEntryMeta(ref.bucket(), ref.key(), written, java.time.Instant.now(), "S3"));
         logger.info("Cached from S3 to {} ({} bytes)", cacheFile, written);
 
+    }
+    private void touch(Path p) {
+        try {
+            Files.setLastModifiedTime(p, FileTime.from(Instant.now()));
+        } catch (Exception ignore) {
+            // best-effort; never break reads
+        }
     }
 
     private boolean tryPullFromPeers(S3Models.ObjectRef ref, Path cacheFile) {
@@ -232,7 +244,7 @@ public class CachedAwsSdkS3AccessLayer implements S3AccessLayer {
 
                 evictIfNeeded(actual);
                 moveAtomically(tmp, cacheFile);
-
+                touch(cacheFile);
                 currentCacheSize += actual;
                 metadataMap.put(cacheFile, new CacheMetadata());
                 writeMeta(cacheFile, new CacheEntryMeta(ref.bucket(), ref.key(), actual, java.time.Instant.now(), "PEER:" + peer));
