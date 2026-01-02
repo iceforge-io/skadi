@@ -41,26 +41,26 @@ public class CachedAwsSdkS3AccessLayer implements S3AccessLayer {
     private Path cacheDir;
 
     // Peer cache config
-    @Value("${skadi.peerCache.enabled:false}")
+    @Value("${skadi.peer-cache.enabled:false}")
     private boolean peerEnabled;
 
-    @Value("${skadi.peerCache.peers:}")
+    @Value("${skadi.peer-cache.peers:}")
     private List<String> peerBaseUrls;
 
-    @Value("${skadi.peerCache.maxPeersToTry:2}")
+    @Value("${skadi.peer-cache.maxPeersToTry:2}")
     private int maxPeersToTry;
 
-    @Value("${skadi.peerCache.headTimeoutMs:250}")
+    @Value("${skadi.peer-cache.headTimeoutMs:250}")
     private long headTimeoutMs;
 
-    @Value("${skadi.peerCache.getTimeoutMs:8000}")
+    @Value("${skadi.peer-cache.getTimeoutMs:8000}")
     private long getTimeoutMs;
 
     // HMAC auth config (client-side)
-    @Value("${skadi.peerCache.auth.keyId:}")
+    @Value("${skadi.peer-cache.auth.keyId:}")
     private String peerKeyId;
 
-    @Value("#{${skadi.peerCache.auth.sharedSecrets:{}}}")
+    @Value("#{${skadi.peer-cache.auth.sharedSecrets:{}}}")
     private Map<String, String> peerSecrets;
 
     @Autowired

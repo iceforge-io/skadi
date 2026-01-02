@@ -33,16 +33,20 @@ skadi:
   local:
     cacheRootDir: ./data/skadi-cache
     cacheMaxSize: 10Gb # 10 GB
-  peerCache:
+  peer-cache:
     enabled: true
     peers: ["http://skadi-1:8080", "http://skadi-2:8080"]
     maxPeersToTry: 2
     headTimeoutMs: 250
     getTimeoutMs: 8000
 
-    auth:
-      scheme: hmac
-      allowedSkewSeconds: 30
-      keyId: "peer-key-1"
-      sharedSecrets:
-        peer-key-1: "${SKADI_PEER_HMAC_SECRET}"
+  query-cache:
+    bucket: skadi-cache
+    prefix: results
+
+  auth:
+    scheme: hmac
+    allowedSkewSeconds: 30
+    keyId: "peer-key-1"
+    sharedSecrets:
+      peer-key-1: "${SKADI_PEER_HMAC_SECRET}"
