@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>Skadi Dashboard</title>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+
+    <style>
+        body {
+          margin: 0;
+          font-family: system-ui, -apple-system, sans-serif;
+          background: #0f172a;
+          color: #e5e7eb;
+        }
+
+        header {
+          padding: 16px 24px;
+          background: #020617;
+          font-size: 20px;
+          font-weight: 600;
+        }
+
+        .grid {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 16px;
+          padding: 16px;
+        }
+
+        .card {
+          background: #020617;
+          border-radius: 8px;
+          padding: 16px;
+          box-shadow: 0 0 0 1px #1e293b;
+        }
+
+        h3 {
+          margin: 0 0 12px;
+          font-size: 14px;
+          color: #94a3b8;
+        }
+
+        table {
+          width: 100%;
+          border-collapse: collapse;
+          font-size: 13px;
+        }
+
+        td, th {
+          padding: 6px;
+          border-bottom: 1px solid #1e293b;
+        }
+
+        .ok { color: #22c55e; }
+        .warn { color: #f59e0b; }
+        .err { color: #ef4444; }
+        .muted { color: #64748b; }
+    </style>
+</head>
+
+<body>
+<header>Skadi – JDBC Cache Dashboard</header>
+
+<div id="root"></div>
+
+<script>
+    const e = React.createElement;
+
+    /* ---------- SAFE FETCH ---------- */
+    function safeFetch(url, fallback) {
+      return fetch(url)
+        .then(r => r.ok ? r.json() : fallback)
+        .catch(() => fallback);
+    }
+
+    /* ---------- DASHBOARD ---------- */
+    function Dashboard() {
+      const [health, setHealth] = React.useState(null);
+      const [cache, setCache] = React.useState(null);
+      const [queries, setQueries] = React.useState([]);
+      const [peers, setPeers] = React.useState([]);
+
+      React.useEffect(() => {
+        safeFetch("/api/health", null).then(setHealth);
+        safeFetch("/api/cache/stats", null).then(setCache);
+        safeFetch("/api/queries/recent", []).then(data =>
+          Array.isArray(data) ? setQueries(data) : setQueries([])
+        );
+        safeFetch("/api/peers", []).then(data =>
+          Array.isArray(data) ? setPeers(data) : setPeers([])
+        );
+      }, []);
+
+      /* ---------- CHART (SAFE) ---------- */
+      React.useEffect(() => {
+        if (!cache || !cache.hits || !cache.misses) return;
+
+        const ctx = document.getElementById("cacheChart");
+        if (!ctx) return;
+
+        if (ctx._chart) ctx._chart.destroy();
+
+        ctx._chart = new Chart(ctx, {
+          type: "doughnut",
+          data: {
+            labels: ["Hits", "Misses"],
+            datasets: [{
+              data: [cache.hits, cache.misses]
+            }]
+          }
+        });
+      }, [cache]);
+
+      return e("div", { className: "grid" },
+
+        /* ---- HEALTH ---- */
+        e("div", { className: "card" },
+          e("h3", null, "System Health"),
+          health
+            ? e("div", { className: health.status === "UP" ? "ok" : "err" },
+                health.status)
+            : e("div", { className: "muted" }, "Unavailable")
+        ),
+
+        /* ---- CACHE HIT ---- */
+        e("div", { className: "card" },
+          e("h3", null, "Cache Hit Ratio"),
+          cache
+            ? e("canvas", { id: "cacheChart", height: 120 })
+            : e("div", { className: "muted" }, "Unavailable")
+        ),
+
+        /* ---- PEERS ---- */
+        e("div", { className: "card" },
+          e("h3", null, "Peers"),
+          peers.length
+            ? peers.map(p =>
+                e("div", { key: p.id || p.host,
+                  className: p.status === "UP" ? "ok" : "err" },
+                  `${p.host || p.id} – ${p.status || "UNKNOWN"}`
+                )
+              )
+            : e("div", { className: "muted" }, "Unavailable")
+        ),
+
+        /* ---- QUERIES ---- */
+        e("div", { className: "card", style: { gridColumn: "span 2" } },
+          e("h3", null, "Recent Queries"),
+          queries.length
+            ? e("table", null,
+                e("thead", null,
+                  e("tr", null,
+                    e("th", null, "SQL Hash"),
+                    e("th", null, "Source"),
+                    e("th", null, "Latency ms")
+                  )
+                ),
+                e("tbody", null,
+                  queries.map(q =>
+                    e("tr", { key: q.hash || Math.random() },
+                      e("td", null, (q.hash || "").substring(0, 8)),
+                      e("td", null, q.source || "-"),
+                      e("td", null, q.latencyMs || "-")
+                    )
+                  )
+                )
+              )
+            : e("div", { className: "muted" }, "No data")
+        ),
+
+        /* ---- STORAGE ---- */
+        e("div", { className: "card" },
+          e("h3", null, "Cache Storage"),
+          cache && cache.bytesUsed
+            ? e("div", null,
+                `Used: ${(cache.bytesUsed / 1e6).toFixed(1)} MB`)
+            : e("div", { className: "muted" }, "Unavailable")
+        )
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root"))
+      .render(e(Dashboard));
+</script>
+</body>
+</html>

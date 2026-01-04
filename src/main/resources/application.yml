@@ -1,9 +1,18 @@
 server:
+  # force ipv4 binding
+  address: 0.0.0.0
   port: 8080
 
 spring:
   application:
     name: skadi
+  web:
+    resources:
+      cache:
+        cachecontrol:
+          max-age: 60
+          cache-public: true
+
 
 management:
   endpoints:
@@ -50,3 +59,4 @@ skadi:
     keyId: "peer-key-1"
     sharedSecrets:
       peer-key-1: "${SKADI_PEER_HMAC_SECRET}"
+
