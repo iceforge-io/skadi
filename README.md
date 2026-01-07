@@ -133,6 +133,8 @@ The project structure encourages keeping tests close to the code they validate.
 ```bash
 mvn clean spring-boot:run
 
+---
+
 ## License
 Licensed under the Apache License, Version 2.0. See `LICENSE`.
 
