@@ -13,7 +13,7 @@
 		<relativePath/>
 	</parent>
 
-	<groupId>dkay229</groupId>
+	<groupId>org.iceforge</groupId>
 	<artifactId>skadi</artifactId>
 	<version>0.1.0-SNAPSHOT</version>
 	<name>skadi</name>
@@ -21,6 +21,8 @@
 	<properties>
 		<java.version>17</java.version>
 		<spring-cloud.version>2024.0.0</spring-cloud.version>
+		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+		<project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
 	</properties>
 
 	<dependencyManagement>
