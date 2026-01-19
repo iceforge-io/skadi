@@ -20,6 +20,7 @@
 	<properties>
 		<java.version>17</java.version>
 		<spring-cloud.version>2024.0.0</spring-cloud.version>
+		<arrow.version>16.1.0</arrow.version>
 		<!-- override Spring Boot managed deps to clear Mend warnings -->
 		<logback.version>1.5.19</logback.version>        <!-- fixes CVE-2025-11226 -->
 		<tomcat.version>10.1.47</tomcat.version>         <!-- fixes CVE-2025-61795 -->
@@ -105,6 +106,24 @@
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-webflux</artifactId>
 		</dependency>
+
+		<!-- Arrow IPC streaming (Option A: HTTP + Arrow stream) -->
+		<dependency>
+			<groupId>org.apache.arrow</groupId>
+			<artifactId>arrow-vector</artifactId>
+			<version>${arrow.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>org.apache.arrow</groupId>
+			<artifactId>arrow-ipc</artifactId>
+			<version>${arrow.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>org.apache.arrow</groupId>
+			<artifactId>arrow-memory-unsafe</artifactId>
+			<version>${arrow.version}</version>
+		</dependency>
+
 		<dependency>
 			<groupId>org.testcontainers</groupId>
 			<artifactId>testcontainers</artifactId>

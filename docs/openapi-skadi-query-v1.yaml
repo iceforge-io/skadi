@@ -1,0 +1,221 @@
+openapi: 3.0.3
+info:
+  title: Skadi Query API (v1)
+  version: 1.0.0
+  description: "HTTP streaming + Arrow IPC."
+servers:
+  - url: /
+
+tags:
+  - name: Queries
+
+paths:
+  /api/v1/queries:
+    post:
+      tags: [Queries]
+      summary: Submit a query
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema: { type: string }
+          description: Optional idempotency key.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitQueryRequest'
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubmitQueryResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /api/v1/queries/{queryId}/status:
+    get:
+      tags: [Queries]
+      summary: Get query status
+      parameters:
+        - name: queryId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueryStatusResponse'
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/queries/{queryId}/results:
+    get:
+      tags: [Queries]
+      summary: Stream query results as Arrow IPC
+      description: |
+        Returns Arrow IPC stream.
+        Content-Type: application/vnd.apache.arrow.stream
+      parameters:
+        - name: queryId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Arrow stream
+          headers:
+            Skadi-Query-Id:
+              schema: { type: string }
+          content:
+            application/vnd.apache.arrow.stream:
+              schema:
+                type: string
+                format: binary
+        '404': { $ref: '#/components/responses/NotFound' }
+        '410':
+          description: Gone (expired, canceled, or not cached and already consumed)
+
+  /api/v1/queries/{queryId}:
+    delete:
+      tags: [Queries]
+      summary: Cancel a query
+      parameters:
+        - name: queryId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '202':
+          description: Cancel requested
+        '404': { $ref: '#/components/responses/NotFound' }
+
+components:
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  schemas:
+    SubmitQueryRequest:
+      type: object
+      required: [jdbc, sql]
+      properties:
+        jdbc:
+          $ref: '#/components/schemas/Jdbc'
+        sql:
+          type: string
+        parameters:
+          type: object
+          additionalProperties: true
+        resultFormat:
+          type: string
+          enum: [ARROW_STREAM]
+          default: ARROW_STREAM
+        preferredChunkBytes:
+          type: integer
+          format: int64
+        timeoutMs:
+          type: integer
+          format: int64
+        cacheMode:
+          type: string
+          enum: [AUTO, BYPASS, FORCE]
+          default: AUTO
+
+    Jdbc:
+      type: object
+      description: |
+        Connection details. Prefer datasourceId for enterprise deployments.
+      properties:
+        datasourceId:
+          type: string
+        jdbcUrl:
+          type: string
+        username:
+          type: string
+        password:
+          type: string
+        properties:
+          type: object
+          additionalProperties:
+            type: string
+
+    SubmitQueryResponse:
+      type: object
+      required: [queryId, state, resultUrl]
+      properties:
+        queryId:
+          type: string
+        state:
+          $ref: '#/components/schemas/QueryState'
+        resultUrl:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+
+    QueryStatusResponse:
+      type: object
+      required: [queryId, state, updatedAt]
+      properties:
+        queryId:
+          type: string
+        state:
+          $ref: '#/components/schemas/QueryState'
+        rowsProduced:
+          type: integer
+          format: int64
+          nullable: true
+        bytesProduced:
+          type: integer
+          format: int64
+          nullable: true
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+        updatedAt:
+          type: string
+          format: date-time
+        errorCode:
+          type: string
+          nullable: true
+        message:
+          type: string
+          nullable: true
+        details:
+          type: object
+          additionalProperties: true
+          nullable: true
+
+    QueryState:
+      type: string
+      enum: [QUEUED, RUNNING, SUCCEEDED, FAILED, CANCELED]
+
+    Error:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+        code:
+          type: string
+          nullable: true
+        details:
+          type: object
+          additionalProperties: true
+          nullable: true
