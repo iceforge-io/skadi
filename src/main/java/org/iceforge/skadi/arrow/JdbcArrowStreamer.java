@@ -15,13 +15,11 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.math.BigDecimal;
 import java.sql.*;
-import java.time.*;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
  * Minimal JDBC -> Arrow IPC stream encoder.
- *
  * Notes:
  * - This is intentionally "small and predictable" for v1.
  * - Add more JDBC type mappings over time as needed.
