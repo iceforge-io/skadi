@@ -26,7 +26,6 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * Option A: HTTP streaming + Arrow IPC.
- *
  * This is a minimal reference implementation that:
  *  - stores the submitted query request in-memory (v1)
  *  - streams results on-demand as application/vnd.apache.arrow.stream
