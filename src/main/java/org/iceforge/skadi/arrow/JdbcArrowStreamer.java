@@ -28,17 +28,17 @@ public final class JdbcArrowStreamer {
 
     private JdbcArrowStreamer() {}
 
-    public static void stream(Connection conn,
+    public static long stream(Connection conn,
                               String sql,
                               int fetchSize,
                               int batchRows,
                               BufferAllocator allocator,
                               OutputStream out) throws Exception {
 
-        stream(conn, sql, fetchSize, batchRows, allocator, out, () -> false);
+        return stream(conn, sql, fetchSize, batchRows, allocator, out, () -> false);
     }
 
-    public static void stream(Connection conn,
+    public static long stream(Connection conn,
                               String sql,
                               int fetchSize,
                               int batchRows,
@@ -46,7 +46,7 @@ public final class JdbcArrowStreamer {
                               OutputStream out,
                               java.util.function.BooleanSupplier cancelRequested) throws Exception {
 
-        stream(conn, sql, fetchSize, batchRows, allocator, out, cancelRequested, null);
+        return stream(conn, sql, fetchSize, batchRows, allocator, out, cancelRequested, null);
     }
 
     /**
@@ -206,8 +206,7 @@ public final class JdbcArrowStreamer {
                 }
                 case Types.TIMESTAMP, Types.TIMESTAMP_WITH_TIMEZONE -> {
                     Timestamp ts = rs.getTimestamp(i);
-                    long millis = ts.toInstant().toEpochMilli();
-                    ((TimeStampMilliVector) v).setSafe(row, millis);
+                    writeTimestampIntoVector(ts, v, row);
                 }
                 case Types.BINARY, Types.VARBINARY, Types.LONGVARBINARY -> {
                     byte[] b = rs.getBytes(i);
@@ -218,6 +217,38 @@ public final class JdbcArrowStreamer {
                     ((VarCharVector) v).setSafe(row, s.getBytes(java.nio.charset.StandardCharsets.UTF_8));
                 }
             }
+        }
+    }
+
+    // Handles both TimeStampMilliVector and TimeStampMilliTZVector and falls back via reflection.
+    private static void writeTimestampIntoVector(Timestamp ts, FieldVector vector, int rowIndex) {
+        if (ts == null) {
+            // set null if available
+            try {
+                vector.getClass().getMethod("setNull", int.class).invoke(vector, rowIndex);
+            } catch (ReflectiveOperationException ignored) {
+                // ignore if not supported
+            }
+            return;
+        }
+
+        long millis = ts.toInstant().toEpochMilli();
+
+        if (vector instanceof org.apache.arrow.vector.TimeStampMilliVector) {
+            ((org.apache.arrow.vector.TimeStampMilliVector) vector).setSafe(rowIndex, millis);
+            return;
+        }
+        if (vector instanceof org.apache.arrow.vector.TimeStampMilliTZVector) {
+            ((org.apache.arrow.vector.TimeStampMilliTZVector) vector).setSafe(rowIndex, millis);
+            return;
+        }
+
+        // Reflective fallback: call setSafe(int, long) if present
+        try {
+            java.lang.reflect.Method m = vector.getClass().getMethod("setSafe", int.class, long.class);
+            m.invoke(vector, rowIndex, millis);
+        } catch (ReflectiveOperationException ex) {
+            throw new IllegalStateException("Unsupported timestamp vector type: " + vector.getClass(), ex);
         }
     }
 }
