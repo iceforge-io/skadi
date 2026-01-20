@@ -1,5 +1,6 @@
 package org.iceforge.skadi.api.v1;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
 
 import java.time.Instant;
@@ -43,7 +44,15 @@ public final class QueryV1Models {
             State state,
             String resultUrl,
             Instant expiresAt
-    ) {}
+    ) {
+        @JsonIgnore
+        public String resultsUrl() {
+            if (resultUrl != null && !resultUrl.isBlank()) {
+                return resultUrl;
+            }
+            return "/api/v1/queries/" + queryId + "/results";
+        }
+    }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record QueryStatusResponse(
@@ -57,4 +66,5 @@ public final class QueryV1Models {
             String message,
             Map<String, Object> details
     ) {}
+
 }
