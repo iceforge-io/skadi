@@ -46,6 +46,24 @@ public final class JdbcArrowStreamer {
                               OutputStream out,
                               java.util.function.BooleanSupplier cancelRequested) throws Exception {
 
+        stream(conn, sql, fetchSize, batchRows, allocator, out, cancelRequested, null);
+    }
+
+    /**
+     * Streams the query as Arrow IPC and returns the total rows emitted.
+     * If {@code onBatchRows} is non-null, it is invoked after each batch is written.
+     */
+    public static long stream(Connection conn,
+                              String sql,
+                              int fetchSize,
+                              int batchRows,
+                              BufferAllocator allocator,
+                              OutputStream out,
+                              java.util.function.BooleanSupplier cancelRequested,
+                              java.util.function.IntConsumer onBatchRows) throws Exception {
+
+        long totalRows = 0L;
+
         try (PreparedStatement ps = conn.prepareStatement(sql,
                 ResultSet.TYPE_FORWARD_ONLY,
                 ResultSet.CONCUR_READ_ONLY)) {
@@ -84,6 +102,10 @@ public final class JdbcArrowStreamer {
                             if (rowCount > 0) {
                                 root.setRowCount(rowCount);
                                 writer.writeBatch();
+                                totalRows += rowCount;
+                                if (onBatchRows != null) {
+                                    onBatchRows.accept(rowCount);
+                                }
                                 root.clear();
                             }
                             break;
@@ -95,6 +117,10 @@ public final class JdbcArrowStreamer {
 
                         root.setRowCount(rowCount);
                         writer.writeBatch();
+                        totalRows += rowCount;
+                        if (onBatchRows != null) {
+                            onBatchRows.accept(rowCount);
+                        }
                         root.clear();
 
                         if (rowCount < batchRows) {
@@ -110,6 +136,8 @@ public final class JdbcArrowStreamer {
             // propagate IO issues as-is (client disconnect, etc.)
             throw ioe;
         }
+
+        return totalRows;
     }
 
     private static Schema toArrowSchema(ResultSetMetaData md) throws SQLException {
