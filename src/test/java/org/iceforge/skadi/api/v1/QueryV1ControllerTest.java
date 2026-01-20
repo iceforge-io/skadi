@@ -109,7 +109,7 @@ class QueryV1ControllerTest {
     @Test
     void results_notFound_when_missing() {
         when(registry.get("x")).thenReturn(Optional.empty());
-        ResponseEntity<StreamingResponseBody> resp = controller.results("x");
+        ResponseEntity<StreamingResponseBody> resp = controller.results("x",2000L);
         assertEquals(HttpStatus.NOT_FOUND, resp.getStatusCode());
     }
 
@@ -118,13 +118,13 @@ class QueryV1ControllerTest {
         QueryV1Registry.Entry canceled = mock(QueryV1Registry.Entry.class);
         when(registry.get("c")).thenReturn(Optional.of(canceled));
         when(canceled.state()).thenReturn(QueryV1Models.State.CANCELED);
-        ResponseEntity<StreamingResponseBody> resp1 = controller.results("c");
+        ResponseEntity<StreamingResponseBody> resp1 = controller.results("c",2000L);
         assertEquals(HttpStatus.GONE, resp1.getStatusCode());
 
         QueryV1Registry.Entry succeeded = mock(QueryV1Registry.Entry.class);
         when(registry.get("s")).thenReturn(Optional.of(succeeded));
         when(succeeded.state()).thenReturn(QueryV1Models.State.SUCCEEDED);
-        ResponseEntity<StreamingResponseBody> resp2 = controller.results("s");
+        ResponseEntity<StreamingResponseBody> resp2 = controller.results("s",2000L);
         assertEquals(HttpStatus.GONE, resp2.getStatusCode());
     }
 
@@ -145,7 +145,7 @@ class QueryV1ControllerTest {
         Connection conn = mock(Connection.class);
         when(jdbcClientFactory.openConnection(any())).thenReturn(conn);
 
-        StreamingResponseBody body = controller.results("id").getBody();
+        StreamingResponseBody body = controller.results("id",2000L).getBody();
         assertNotNull(body);
 
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
