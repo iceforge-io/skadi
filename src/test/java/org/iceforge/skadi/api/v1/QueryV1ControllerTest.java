@@ -149,7 +149,7 @@ class QueryV1ControllerTest {
         assertNotNull(body);
 
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        IOException thrown = assertThrows(IOException.class, () -> body.writeTo(baos));
+        assertThrows(IOException.class, () -> body.writeTo(baos));
         // ensure the controller attempted to mark running then mark failed with QUERY_FAILED
         verify(entry).markRunning();
         verify(entry).markFailed(eq("QUERY_FAILED"), contains("Missing sql"));

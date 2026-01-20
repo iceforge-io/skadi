@@ -40,7 +40,7 @@ class QueryV1RegistryTest {
     }
 
     @Test
-    void entry_state_transitions_and_metrics() throws InterruptedException {
+    void entry_state_transitions_and_metrics() {
         QueryV1Registry registry = new QueryV1Registry();
         QueryV1Models.SubmitQueryRequest req = new QueryV1Models.SubmitQueryRequest(null, "select 1", null, null, null, null, null);
 
