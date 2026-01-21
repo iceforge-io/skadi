@@ -20,6 +20,7 @@
 	<properties>
 		<java.version>17</java.version>
 		<spring-cloud.version>2024.0.0</spring-cloud.version>
+		<arrow.version>16.1.0</arrow.version>
 		<!-- override Spring Boot managed deps to clear Mend warnings -->
 		<logback.version>1.5.19</logback.version>        <!-- fixes CVE-2025-11226 -->
 		<tomcat.version>10.1.47</tomcat.version>         <!-- fixes CVE-2025-61795 -->
@@ -34,6 +35,13 @@
 				<groupId>software.amazon.awssdk</groupId>
 				<artifactId>bom</artifactId>
 				<version>2.25.70</version>
+				<type>pom</type>
+				<scope>import</scope>
+			</dependency>
+			<dependency>
+				<groupId>org.apache.arrow</groupId>
+				<artifactId>arrow-bom</artifactId>
+				<version>${arrow.version}</version>
 				<type>pom</type>
 				<scope>import</scope>
 			</dependency>
@@ -105,6 +113,17 @@
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-webflux</artifactId>
 		</dependency>
+
+		<!-- Arrow IPC streaming (Option A: HTTP + Arrow stream) -->
+		<dependency>
+			<groupId>org.apache.arrow</groupId>
+			<artifactId>arrow-vector</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.apache.arrow</groupId>
+			<artifactId>arrow-memory-unsafe</artifactId>
+		</dependency>
+
 		<dependency>
 			<groupId>org.testcontainers</groupId>
 			<artifactId>testcontainers</artifactId>
