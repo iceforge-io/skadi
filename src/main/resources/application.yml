@@ -60,3 +60,17 @@ skadi:
     sharedSecrets:
       peer-key-1: "${SKADI_PEER_HMAC_SECRET}"
 
+  demo:
+    h2:
+      enabled: true
+      dbName: skadi_demo
+      allowRemote: false
+      adminToken: ""   # set to a value if you want token protection
+
+
+  jdbc:
+    datasources:
+      demo-h2:
+        jdbcUrl: jdbc:h2:mem:skadi_demo;DB_CLOSE_DELAY=-1;DATABASE_TO_UPPER=FALSE
+        username: sa
+        password: ""
