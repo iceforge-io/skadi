@@ -6,6 +6,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Primary;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -23,6 +24,7 @@ import static java.nio.file.StandardOpenOption.*;
 
 @Service
 @Primary
+@ConditionalOnProperty(prefix = "skadi.query-cache", name = "store", havingValue = "s3", matchIfMissing = true)
 public class CachedAwsSdkS3AccessLayer implements S3AccessLayer {
     private static final Logger logger = LoggerFactory.getLogger(CachedAwsSdkS3AccessLayer.class);
 

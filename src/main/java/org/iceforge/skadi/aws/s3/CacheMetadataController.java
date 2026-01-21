@@ -1,5 +1,6 @@
 package org.iceforge.skadi.aws.s3;
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -7,6 +8,7 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 @RestController
+@ConditionalOnProperty(prefix = "skadi.query-cache", name = "store", havingValue = "s3", matchIfMissing = true)
 public class CacheMetadataController {
     private final CachedAwsSdkS3AccessLayer cachedLayer;
 

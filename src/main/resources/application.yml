@@ -50,6 +50,12 @@ skadi:
     getTimeoutMs: 8000
 
   query-cache:
+    # Backing store for cached artifacts and materialized results.
+    #   - s3 (default): use S3/S3-compatible object store
+    #   - local: store objects on local filesystem (dev/integration-test)
+    store: s3
+    # Only used when store=local
+    localBaseDir: ./data/skadi-local-object-store
     bucket: skadi-cache
     prefix: results
 

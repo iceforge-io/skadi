@@ -10,6 +10,17 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "skadi.query-cache")
 public class QueryCacheProperties {
 
+    /**
+     * Backing store for cached artifacts and materialized results.
+     * <p>
+     * - "s3" (default): use S3 (or S3-compatible) object store
+     * - "local": store objects on the local filesystem (dev / integration-test mode)
+     */
+    private String store = "s3";
+
+    /** Base directory when store=local. */
+    private String localBaseDir = "./data/skadi-local-object-store";
+
     /** S3 bucket where manifests/chunks are written. */
     private String bucket = "skadi-cache";
 
@@ -31,6 +42,22 @@ public class QueryCacheProperties {
 
     public void setBucket(String bucket) {
         this.bucket = bucket;
+    }
+
+    public String getStore() {
+        return store;
+    }
+
+    public void setStore(String store) {
+        this.store = store;
+    }
+
+    public String getLocalBaseDir() {
+        return localBaseDir;
+    }
+
+    public void setLocalBaseDir(String localBaseDir) {
+        this.localBaseDir = localBaseDir;
     }
 
     public String getPrefix() {

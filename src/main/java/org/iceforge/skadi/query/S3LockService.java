@@ -2,6 +2,7 @@ package org.iceforge.skadi.query;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -16,7 +17,8 @@ import java.util.Map;
 import java.util.Objects;
 
 @Service
-public class S3LockService {
+@ConditionalOnProperty(prefix = "skadi.query-cache", name = "store", havingValue = "s3", matchIfMissing = true)
+public class S3LockService implements LockService {
 
     private static final Logger log = LoggerFactory.getLogger(S3LockService.class);
 
@@ -33,6 +35,7 @@ public class S3LockService {
      * - If lock object exists → return false
      * - Else write lock object and return true
      */
+    @Override
     public boolean tryAcquire(String bucket, String lockKey, String ownerId, long ttlSeconds) {
         Objects.requireNonNull(bucket);
         Objects.requireNonNull(lockKey);
@@ -76,6 +79,7 @@ public class S3LockService {
         }
     }
 
+    @Override
     public void release(String bucket, String lockKey) {
         try {
             s3.deleteObject(b -> b.bucket(bucket).key(lockKey));

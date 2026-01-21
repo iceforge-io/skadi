@@ -21,7 +21,7 @@ public class QueryService {
     private final QueryCacheProperties props;
     private final ResultSetToS3ChunkWriter writer;
     private final S3AccessLayer s3;
-    private final S3LockService lockService;
+    private final LockService lockService;
     private final QueryRegistry registry;
     private final ManifestReader manifestReader;
     private final ExecutorService queryExecutor;
@@ -30,7 +30,7 @@ public class QueryService {
     public QueryService(QueryCacheProperties props,
                         ResultSetToS3ChunkWriter writer,
                         S3AccessLayer s3,
-                        S3LockService lockService,
+                        LockService lockService,
                         QueryRegistry registry,
                         ManifestReader manifestReader,
                         ExecutorService queryExecutor,

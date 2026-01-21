@@ -1,6 +1,7 @@
 package org.iceforge.skadi.aws.s3;
 
 import org.iceforge.skadi.aws.SkadiAwsProperties;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -15,6 +16,7 @@ import java.net.URI;
 /** * Configuration class for AWS S3 client and presigner.
  */
 @Configuration
+@ConditionalOnProperty(prefix = "skadi.query-cache", name = "store", havingValue = "s3", matchIfMissing = true)
 public class S3ClientConfig {
     @Value("${skadi.aws.region}")
     private String region;

@@ -1,5 +1,6 @@
 package org.iceforge.skadi.aws.s3;
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
@@ -12,6 +13,7 @@ import java.util.Optional;
 
 @RestController
 @RequestMapping("/internal/cache")
+@ConditionalOnProperty(prefix = "skadi.query-cache", name = "store", havingValue = "s3", matchIfMissing = true)
 public class PeerCacheController {
 
     private final CachedAwsSdkS3AccessLayer cache;

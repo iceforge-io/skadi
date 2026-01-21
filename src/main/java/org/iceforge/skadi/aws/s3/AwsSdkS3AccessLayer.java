@@ -2,6 +2,7 @@ package org.iceforge.skadi.aws.s3;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.core.ResponseInputStream;
@@ -21,6 +22,7 @@ import java.util.*;
 
 @Component
 @Service
+@ConditionalOnProperty(prefix = "skadi.query-cache", name = "store", havingValue = "s3", matchIfMissing = true)
 public class AwsSdkS3AccessLayer implements S3AccessLayer {
     private static final Logger logger = LoggerFactory.getLogger(AwsSdkS3AccessLayer.class);
     private final S3Client s3;
@@ -114,13 +116,9 @@ public class AwsSdkS3AccessLayer implements S3AccessLayer {
                     r.metadata() == null ? Map.of() : r.metadata()
             ));
         } catch (NoSuchKeyException e) {
-            /*
-            // Some S3-compatible APIs throw generic 404 as S3Exception; treat 404 as not-found.
-            if ( e.statusCode() == 404) return Optional.empty();
-            if (e instanceof NoSuchKeyException) return Optional.empty();
-             */
-            logger.error("S3 object not found for head s3://{}/{}", ref.bucket(), ref.key(), e);
-            throw new S3AccessException("S3 head failed: s3://" + ref.bucket() + "/" + ref.key(), e);
+            // Expected: object doesn't exist.
+            logger.info("S3 object not found (expected) for head s3://{}/{}", ref.bucket(), ref.key());
+            return Optional.empty();
         } catch (S3Exception e) {
             // Some S3-compatible APIs throw generic 404 as S3Exception; treat 404 as not-found.
             if (e.statusCode() == 404) {
