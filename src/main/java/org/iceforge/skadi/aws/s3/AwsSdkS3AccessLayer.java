@@ -78,8 +78,9 @@ public class AwsSdkS3AccessLayer implements S3AccessLayer {
             logger.info("S3 getBytes succeeded for s3://{}/{}", ref.bucket(), ref.key());
             return readAllBytes(ris);
         } catch (NoSuchKeyException e) {
-            logger.error("S3 object not found for getBytes s3://{}/{}", ref.bucket(), ref.key(), e);
-            throw new S3AccessException("S3 object not found: s3://" + ref.bucket() + "/" + ref.key(), e);
+            // Cache miss is expected; do NOT fail the request.
+            logger.info("S3 object not found (expected) for get s3://{}/{}", ref.bucket(), ref.key());
+            throw new S3CacheMissException(ref.bucket(), ref.key(), e);
         } catch (S3Exception | IOException e) {
             throw new S3AccessException("S3 getBytes failed: s3://" + ref.bucket() + "/" + ref.key(), e);
         }

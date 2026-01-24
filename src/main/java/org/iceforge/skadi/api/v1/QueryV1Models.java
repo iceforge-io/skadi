@@ -65,6 +65,19 @@ public final class QueryV1Models {
             String errorCode,
             String message,
             Map<String, Object> details
-    ) {}
+    ) {
+        public static QueryStatusResponse from(QueryV1Registry.Entry entry) {
+        return new QueryStatusResponse(
+                entry.queryId(),
+                entry.state(),
+                entry.rowsProduced(),
+                entry.bytesProduced(),
+                entry.startedAt(),
+                entry.updatedAt(),
+                entry.errorCode(),
+                entry.message(),
+                null // Adjust this if additional fields are required
+        );
+    }}
 
 }
