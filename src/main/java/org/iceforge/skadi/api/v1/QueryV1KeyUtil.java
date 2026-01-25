@@ -6,10 +6,8 @@ import java.util.*;
 
 /**
  * Canonicalizes Query V1 submit inputs into a deterministic SHA-256 id.
- *
  * Intended use:
  *   String queryId = QueryV1KeyUtil.queryId(req);
- *
  * Notes:
  * - Normalizes SQL (trim + collapse whitespace)
  * - Sorts JDBC properties by key

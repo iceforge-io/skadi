@@ -7,7 +7,6 @@ import java.io.StringWriter;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -139,7 +138,7 @@ public class QueryV1Registry {
 
     public Entry create(QueryV1Models.SubmitQueryRequest req) {
         Objects.requireNonNull(req);
-        String id =  QueryV1KeyUtil.queryId(req);;
+        String id =  QueryV1KeyUtil.queryId(req);
         return entries.computeIfAbsent(id, ignored -> new Entry(id, req));
     }
 
