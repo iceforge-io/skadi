@@ -56,7 +56,11 @@ skadi:
     store: s3
     # Only used when store=local
     localBaseDir: ./data/skadi-local-object-store
-    bucket: skadi-cache
+    # Only used when store=s3, configure your S3 bucket and prefix here
+    # Make sure the Skadi service role has access to this bucket!
+    # The bucket must already exist.
+    # e.g. arn:aws:s3:::skadi-query-cache-test-gp-unver
+    bucket: skadi-query-cache-test-gp-unver
     prefix: results
 
   auth:

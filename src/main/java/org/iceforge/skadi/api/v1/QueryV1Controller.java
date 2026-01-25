@@ -9,6 +9,8 @@ package org.iceforge.skadi.api.v1;
         import org.iceforge.skadi.jdbc.spi.JdbcClientFactory;
         import org.iceforge.skadi.query.QueryModels;
         import org.iceforge.skadi.query.QueryCacheProperties;
+        import org.slf4j.Logger;
+        import org.slf4j.LoggerFactory;
         import org.springframework.http.HttpHeaders;
         import org.springframework.http.HttpStatus;
         import org.springframework.http.MediaType;
@@ -29,6 +31,7 @@ package org.iceforge.skadi.api.v1;
         @RestController
         @RequestMapping("/api/v1/queries")
         public class QueryV1Controller {
+            private static final Logger log = LoggerFactory.getLogger(QueryV1Controller.class);
 
             private final QueryV1Registry registry;
             private final JdbcClientFactory jdbcClientFactory;
@@ -189,7 +192,8 @@ package org.iceforge.skadi.api.v1;
                         if (e.cancelRequested()) {
                             e.markCanceled();
                         } else {
-                            e.markFailed("QUERY_FAILED", ex.getMessage());
+                            e.markFailed("QUERY_FAILED", ex);
+                            log.error("Query materialization failed: queryId={}", e.queryId(), ex); // <-- THIS is what you’re missing
                         }
                         safeDelete(ref);
                     } finally {

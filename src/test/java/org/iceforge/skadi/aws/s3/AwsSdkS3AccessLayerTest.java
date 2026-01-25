@@ -108,17 +108,17 @@ class AwsSdkS3AccessLayerTest {
     }
 
     @Test
-    void getBytes_noSuchKey_wrapsAsS3AccessException_objectNotFoundMessage() {
+    void getBytes_noSuchKey_throwsS3CacheMissException_withCacheMissMessage() {
         S3Models.ObjectRef ref = new S3Models.ObjectRef("bucket", "missing");
 
         when(s3Client.getObject(any(GetObjectRequest.class)))
                 .thenThrow(NoSuchKeyException.builder().message("nope").build());
 
-        S3AccessException ex = assertThrows(S3AccessException.class, () ->
+        S3CacheMissException ex = assertThrows(S3CacheMissException.class, () ->
                 s3AccessLayer.getBytes(ref)
         );
 
-        assertTrue(ex.getMessage().contains("S3 object not found"));
+        assertTrue(ex.getMessage().contains("S3 cache miss: s3://bucket/missing"));
     }
 
     @Test

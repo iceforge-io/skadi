@@ -2,6 +2,8 @@ package org.iceforge.skadi.api.v1;
 
 import org.springframework.stereotype.Component;
 
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.Optional;
@@ -26,6 +28,10 @@ public class QueryV1Registry {
         private volatile Instant updatedAt;
         private volatile String errorCode;
         private volatile String message;
+        // Failure diagnostics (optional; populated only when FAILED)
+        private volatile String exceptionClass;
+        private volatile String rootCauseMessage;
+        private volatile String stacktrace;
 
         // Materialized result location (Option A).
         private volatile String resultBucket;
@@ -64,13 +70,31 @@ public class QueryV1Registry {
             completion.complete(null);
         }
 
-        public void markFailed(String code, String msg) {
-            state = QueryV1Models.State.FAILED;
-            errorCode = code;
-            message = msg;
-            updatedAt = Instant.now();
-            completion.complete(null);
+        public void markFailed(String code, Throwable ex) {
+            this.state = QueryV1Models.State.FAILED;
+            this.errorCode = code;
+
+            if (ex != null) {
+                this.message = ex.getMessage();
+                this.exceptionClass = ex.getClass().getName();
+
+                Throwable rc = rootCause(ex);
+                this.rootCauseMessage = (rc == null ? null : rc.getMessage());
+
+                this.stacktrace = stackTraceToString(ex);
+            } else {
+                this.message = null;
+                this.exceptionClass = null;
+                this.rootCauseMessage = null;
+                this.stacktrace = null;
+            }
+
+            this.updatedAt = java.time.Instant.now();
+            this.completion.complete(null);
         }
+
+
+
 
         public void markCanceled() {
             state = QueryV1Models.State.CANCELED;
@@ -87,6 +111,9 @@ public class QueryV1Registry {
         public Instant updatedAt() { return updatedAt; }
         public String errorCode() { return errorCode; }
         public String message() { return message; }
+        public String exceptionClass() { return exceptionClass; }
+        public String rootCauseMessage() { return rootCauseMessage; }
+        public String stacktrace() { return stacktrace; }
 
         public CompletableFuture<Void> completion() { return completion; }
 
@@ -119,4 +146,31 @@ public class QueryV1Registry {
     public void remove(String queryId) {
         entries.remove(queryId);
     }
+    private static Throwable rootCause(Throwable t) {
+        if (t == null) return null;
+        Throwable cur = t;
+        while (cur.getCause() != null && cur.getCause() != cur) {
+            cur = cur.getCause();
+        }
+        return cur;
+    }
+
+    private static String stackTraceToString(Throwable t) {
+        if (t == null) return null;
+
+        StringWriter sw = new StringWriter(4096);
+        PrintWriter pw = new PrintWriter(sw);
+        t.printStackTrace(pw);
+        pw.flush();
+
+        String s = sw.toString();
+
+        // Safety: truncate very large traces (dashboard + API friendly)
+        final int MAX = 20_000;
+        if (s.length() > MAX) {
+            return s.substring(0, MAX) + "\n... (truncated)";
+        }
+        return s;
+    }
+
 }

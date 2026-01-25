@@ -75,7 +75,7 @@ class QueryV1RegistryTest {
         assertTrue(e.updatedAt().equals(beforeSucceeded) || e.updatedAt().isAfter(beforeSucceeded));
 
         // markFailed
-        e.markFailed("ERR", "something went wrong");
+        e.markFailed("ERR", new Exception("something went wrong"));
         assertEquals(QueryV1Models.State.FAILED, e.state());
         assertEquals("ERR", e.errorCode());
         assertEquals("something went wrong", e.message());
