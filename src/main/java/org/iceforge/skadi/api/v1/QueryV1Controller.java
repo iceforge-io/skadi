@@ -56,19 +56,55 @@ package org.iceforge.skadi.api.v1;
                     @RequestBody QueryV1Models.SubmitQueryRequest req,
                     @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
 
-                QueryV1Registry.Entry e = registry.create(req);
-                startMaterialization(e);
+                final String queryId = (idempotencyKey != null && !idempotencyKey.isBlank())
+                        ? idempotencyKey.trim()
+                        : QueryV1KeyUtil.queryId(req);
 
-                Instant expiresAt = Instant.now().plus(Duration.ofHours(1));
+                final String bucket = cacheProps.getBucket();
+                final String key = cacheProps.getPrefix() + "/" + cacheProps.getArrowPrefix() + "/" + queryId + "/result.arrow";
+                final S3Models.ObjectRef ref = new S3Models.ObjectRef(bucket, key);
+
+                final Duration ttl = Duration.ofHours(1);
+
+                // 🔴 CACHE HIT SHORT-CIRCUIT (NO DBX)
+                if (s3.exists(ref)) {
+                    QueryV1Registry.Entry hit = registry.getOrCreate(queryId, req);
+                    hit.setResultLocation(bucket, key, "application/vnd.apache.arrow.stream");
+                    hit.markSucceeded();
+
+                    log.info("CACHE_HIT v1 queryId={} s3://{}/{}", queryId, bucket, key);
+
+                    return ResponseEntity.ok(
+                            new QueryV1Models.SubmitQueryResponse(
+                                    queryId,
+                                    QueryV1Models.State.SUCCEEDED,
+                                    "/api/v1/queries/" + queryId + "/results",
+                                    Instant.now().plus(Duration.ofHours(1)) // fake expiry for now
+                            )
+                    );
+                }
+
+                // ---- MISS: create or reuse entry, start once ----
+                QueryV1Registry.Entry e = registry.getOrCreate(queryId, req);
+
+                if (e.tryStart()) {
+                    startMaterialization(e, ref);
+                    log.info("CACHE_MISS_START v1 queryId={} s3://{}/{}", queryId, bucket, key);
+                } else {
+                    log.info("ALREADY_STARTED v1 queryId={} state={}", queryId, e.state());
+                }
+
                 return ResponseEntity.status(HttpStatus.ACCEPTED).body(
                         new QueryV1Models.SubmitQueryResponse(
-                                e.queryId(),
+                                queryId,
                                 e.state(),
-                                "/api/v1/queries/" + e.queryId() + "/results",
-                                expiresAt
+                                "/api/v1/queries/" + queryId + "/results",
+                                Instant.now().plus(ttl)
                         )
                 );
             }
+
+
 
             @GetMapping("/{queryId}/status")
             public ResponseEntity<QueryV1Models.QueryStatusResponse> status(@PathVariable String queryId) {
@@ -135,14 +171,12 @@ package org.iceforge.skadi.api.v1;
                 return ResponseEntity.accepted().build();
             }
 
-            private void startMaterialization(QueryV1Registry.Entry e) {
+            private void startMaterialization(QueryV1Registry.Entry e, S3Models.ObjectRef ref) {
                 queryExecutor.submit(() -> {
                     e.markRunning();
 
                     Path tmp = null;
-                    String bucket = cacheProps.getBucket();
-                    String key = cacheProps.getPrefix() + "/" + cacheProps.getArrowPrefix() + "/" + e.queryId() + "/result.arrow";
-                    S3Models.ObjectRef ref = new S3Models.ObjectRef(bucket, key);
+
 
                     try (BufferAllocator allocator = new RootAllocator();
                          Connection conn = openConnection(e.request())) {
@@ -186,8 +220,9 @@ package org.iceforge.skadi.api.v1;
                             }
                         }
 
-                        e.setResultLocation(bucket, key, "application/vnd.apache.arrow.stream");
+                        e.setResultLocation(ref.bucket(), ref.key(), "application/vnd.apache.arrow.stream");
                         e.markSucceeded();
+
                     } catch (Exception ex) {
                         if (e.cancelRequested()) {
                             e.markCanceled();

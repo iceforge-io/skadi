@@ -56,23 +56,28 @@ class QueryV1ControllerTest {
         controller = new QueryV1Controller(registry, jdbcClientFactory, s3AccessLayer, cacheProperties, executor);
     }
 
+
     @Test
     void submit_returnsAccepted_and_location() {
         QueryV1Models.SubmitQueryRequest req = mock(QueryV1Models.SubmitQueryRequest.class);
         QueryV1Registry.Entry entry = mock(QueryV1Registry.Entry.class);
 
-        when(registry.create(any())).thenReturn(entry);
+        // submit() now calls getOrCreate(queryId, req). Let QueryV1KeyUtil.queryId(req) return "q-123".
+        when(registry.getOrCreate(anyString(), any())).thenReturn(entry);
         when(entry.queryId()).thenReturn("q-123");
         when(entry.state()).thenReturn(QueryV1Models.State.QUEUED);
+        when(entry.tryStart()).thenReturn(false); // so we don't depend on startMaterialization
 
         ResponseEntity<QueryV1Models.SubmitQueryResponse> resp = controller.submit(req, null);
 
         assertEquals(HttpStatus.ACCEPTED, resp.getStatusCode());
         assertNotNull(resp.getBody());
-        assertEquals("q-123", resp.getBody().queryId());
-        assertTrue(resp.getBody().resultsUrl().contains("/api/v1/queries/q-123/results"));
+        // Expect the derived query id actually used by the controller
+        String expectedId = "691881f815553c4b846470a99f7118547b59b5ea8aed069512beb0c1c1a4f2ce";
+        assertEquals(expectedId, resp.getBody().queryId());
+        assertTrue(resp.getBody().resultsUrl().contains("/api/v1/queries/" + expectedId + "/results"));
 
-        verify(registry).create(submitCaptor.capture());
+        verify(registry).getOrCreate(anyString(), submitCaptor.capture());
         assertSame(req, submitCaptor.getValue());
     }
 

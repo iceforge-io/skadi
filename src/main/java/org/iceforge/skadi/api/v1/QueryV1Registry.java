@@ -127,16 +127,24 @@ public class QueryV1Registry {
             this.resultContentType = contentType;
             this.updatedAt = Instant.now();
         }
+        private final java.util.concurrent.atomic.AtomicBoolean started = new java.util.concurrent.atomic.AtomicBoolean(false);
+
+        public boolean tryStart() {
+            return started.compareAndSet(false, true);
+        }
+
     }
 
     private final ConcurrentMap<String, Entry> entries = new ConcurrentHashMap<>();
 
     public Entry create(QueryV1Models.SubmitQueryRequest req) {
         Objects.requireNonNull(req);
-        String id = UUID.randomUUID().toString();
-        Entry e = new Entry(id, req);
-        entries.put(id, e);
-        return e;
+        String id =  QueryV1KeyUtil.queryId(req);;
+        return entries.computeIfAbsent(id, ignored -> new Entry(id, req));
+    }
+
+    public Entry getOrCreate(String queryId, QueryV1Models.SubmitQueryRequest req) {
+        return entries.computeIfAbsent(queryId, id -> new Entry(id, req));
     }
 
     public Optional<Entry> get(String queryId) {
