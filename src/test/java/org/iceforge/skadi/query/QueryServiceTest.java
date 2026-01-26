@@ -1,5 +1,6 @@
 package org.iceforge.skadi.query;
 
+import org.iceforge.skadi.api.CacheMetricsRegistry;
 import org.iceforge.skadi.aws.s3.ResultSetToS3ChunkWriter;
 import org.iceforge.skadi.aws.s3.S3AccessLayer;
 import org.iceforge.skadi.aws.s3.S3Models;
@@ -40,7 +41,9 @@ class QueryServiceTest {
         JdbcClientFactory jdbcFactory = new JdbcClientFactory(new SkadiJdbcProperties(),
                 List.of(new DefaultDriverManagerJdbcConnectionProvider()));
 
-        QueryService svc = new QueryService(props, writer, s3, lock, registry, mr, exec, jdbcFactory);
+        CacheMetricsRegistry metrics = new CacheMetricsRegistry();
+        QueryService svc = new QueryService(props, metrics, writer, s3, lock, registry, mr, exec, jdbcFactory);
+
 
         QueryModels.QueryRequest req = new QueryModels.QueryRequest(
                 "my-key",
@@ -83,7 +86,8 @@ class QueryServiceTest {
         JdbcClientFactory jdbcFactory = new JdbcClientFactory(new SkadiJdbcProperties(),
                 List.of(new DefaultDriverManagerJdbcConnectionProvider()));
 
-        QueryService svc = new QueryService(props, writer, s3, lock, registry, mr, exec, jdbcFactory);
+        CacheMetricsRegistry metrics = new CacheMetricsRegistry();
+        QueryService svc = new QueryService(props, metrics, writer, s3, lock, registry, mr, exec, jdbcFactory);
 
         QueryModels.QueryRequest req = new QueryModels.QueryRequest(
                 "my-key",

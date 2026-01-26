@@ -2,6 +2,7 @@ package org.iceforge.skadi.aws.s3;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.mockito.Mockito;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -28,7 +29,7 @@ public class ResultSetToS3ChunkWriterLocalCacheTest {
                 }
             }
 
-            AwsSdkS3AccessLayer delegate = mock(AwsSdkS3AccessLayer.class, withSettings().lenient());
+            AwsSdkS3AccessLayer delegate = Mockito.mock(AwsSdkS3AccessLayer.class);
             when(delegate.putBytes(any(S3Models.ObjectRef.class), any(byte[].class), anyString(), anyMap()))
                     .thenReturn("etag");
 

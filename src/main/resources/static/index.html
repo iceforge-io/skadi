@@ -84,19 +84,25 @@
       const [peers, setPeers] = React.useState([]);
 
       React.useEffect(() => {
-        safeFetch("/api/health", null).then(setHealth);
-        safeFetch("/api/cache/stats", null).then(setCache);
-        safeFetch("/api/queries/recent", []).then(data =>
-          Array.isArray(data) ? setQueries(data) : setQueries([])
-        );
-        safeFetch("/api/peers", []).then(data =>
-          Array.isArray(data) ? setPeers(data) : setPeers([])
-        );
+        function refresh() {
+          safeFetch("/api/health", null).then(setHealth);
+          safeFetch("/api/cache/stats", null).then(setCache);
+          safeFetch("/api/queries/recent", []).then(data =>
+            Array.isArray(data) ? setQueries(data) : setQueries([])
+          );
+          safeFetch("/api/peers", []).then(data =>
+            Array.isArray(data) ? setPeers(data) : setPeers([])
+          );
+        }
+
+        refresh();
+        const t = setInterval(refresh, 3000);
+        return () => clearInterval(t);
       }, []);
 
       /* ---------- CHART (SAFE) ---------- */
       React.useEffect(() => {
-        if (!cache || !cache.hits || !cache.misses) return;
+        if (!cache) return;
 
         const ctx = document.getElementById("cacheChart");
         if (!ctx) return;
@@ -174,7 +180,7 @@
         /* ---- STORAGE ---- */
         e("div", { className: "card" },
           e("h3", null, "Cache Storage"),
-          cache && cache.bytesUsed
+          cache && typeof cache.bytesUsed === "number"
             ? e("div", null,
                 `Used: ${(cache.bytesUsed / 1e6).toFixed(1)} MB`)
             : e("div", { className: "muted" }, "Unavailable")

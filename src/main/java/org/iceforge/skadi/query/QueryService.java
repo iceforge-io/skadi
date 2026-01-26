@@ -6,6 +6,7 @@ import org.iceforge.skadi.aws.s3.S3Models;
 import org.iceforge.skadi.jdbc.spi.JdbcClientFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.iceforge.skadi.api.CacheMetricsRegistry;
 import org.springframework.stereotype.Service;
 
 import java.sql.Connection;
@@ -19,6 +20,7 @@ public class QueryService {
     private static final Logger logger = LoggerFactory.getLogger(QueryService.class);
 
     private final QueryCacheProperties props;
+    private final CacheMetricsRegistry cacheMetrics;
     private final ResultSetToS3ChunkWriter writer;
     private final S3AccessLayer s3;
     private final LockService lockService;
@@ -28,6 +30,7 @@ public class QueryService {
     private final JdbcClientFactory jdbcClientFactory;
 
     public QueryService(QueryCacheProperties props,
+                        CacheMetricsRegistry cacheMetrics,
                         ResultSetToS3ChunkWriter writer,
                         S3AccessLayer s3,
                         LockService lockService,
@@ -36,6 +39,7 @@ public class QueryService {
                         ExecutorService queryExecutor,
                         JdbcClientFactory jdbcClientFactory) {
         this.props = Objects.requireNonNull(props);
+        this.cacheMetrics = Objects.requireNonNull(cacheMetrics);
         this.writer = Objects.requireNonNull(writer);
         this.s3 = Objects.requireNonNull(s3);
         this.lockService = Objects.requireNonNull(lockService);
@@ -57,11 +61,14 @@ public class QueryService {
 
         // Fast HIT check
         if (s3.exists(plan.manifestRef())) {
+            cacheMetrics.recordHit();
             ResultSetToS3ChunkWriter.S3ResultSetRef ref = loadRefFromManifestOrFallback(plan);
             registry.put(queryId, QueryModels.Status.HIT, ref, null);
             return new QueryModels.QueryResponse(QueryModels.Status.HIT, queryId, ref,
                     Map.of("manifestKey", plan.manifestRef().key()));
         }
+
+        cacheMetrics.recordMiss();
 
         // Try to acquire a cross-instance lock
         String lockKey = prefix + "/" + runId + "/.lock";

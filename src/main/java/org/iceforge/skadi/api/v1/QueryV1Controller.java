@@ -7,6 +7,7 @@ package org.iceforge.skadi.api.v1;
         import org.iceforge.skadi.aws.s3.S3AccessLayer;
         import org.iceforge.skadi.aws.s3.S3Models;
         import org.iceforge.skadi.jdbc.spi.JdbcClientFactory;
+import org.iceforge.skadi.api.CacheMetricsRegistry;
         import org.iceforge.skadi.query.QueryModels;
         import org.iceforge.skadi.query.QueryCacheProperties;
         import org.slf4j.Logger;
@@ -34,6 +35,7 @@ package org.iceforge.skadi.api.v1;
             private static final Logger log = LoggerFactory.getLogger(QueryV1Controller.class);
 
             private final QueryV1Registry registry;
+            private final CacheMetricsRegistry cacheMetrics;
             private final JdbcClientFactory jdbcClientFactory;
             private final S3AccessLayer s3;
             private final QueryCacheProperties cacheProps;
@@ -43,8 +45,10 @@ package org.iceforge.skadi.api.v1;
                                      JdbcClientFactory jdbcClientFactory,
                                      S3AccessLayer s3,
                                      QueryCacheProperties cacheProps,
-                                     ExecutorService queryExecutor) {
+                                     ExecutorService queryExecutor,
+                                     CacheMetricsRegistry cacheMetrics) {
                 this.registry = Objects.requireNonNull(registry);
+                this.cacheMetrics = Objects.requireNonNull(cacheMetrics);
                 this.jdbcClientFactory = Objects.requireNonNull(jdbcClientFactory);
                 this.s3 = Objects.requireNonNull(s3);
                 this.cacheProps = Objects.requireNonNull(cacheProps);
@@ -68,7 +72,10 @@ package org.iceforge.skadi.api.v1;
 
                 // 🔴 CACHE HIT SHORT-CIRCUIT (NO DBX)
                 if (s3.exists(ref)) {
+                    cacheMetrics.recordHit();
                     QueryV1Registry.Entry hit = registry.getOrCreate(queryId, req);
+                    hit.ensureStartedAt();
+                    hit.setLastSource("CACHE_HIT");
                     hit.setResultLocation(bucket, key, "application/vnd.apache.arrow.stream");
                     hit.markSucceeded();
 
@@ -83,6 +90,8 @@ package org.iceforge.skadi.api.v1;
                             )
                     );
                 }
+
+                cacheMetrics.recordMiss();
 
                 // ---- MISS: create or reuse entry, start once ----
                 QueryV1Registry.Entry e = registry.getOrCreate(queryId, req);
@@ -242,6 +251,7 @@ package org.iceforge.skadi.api.v1;
             private void safeDelete(S3Models.ObjectRef ref) {
                 try {
                     if (s3.exists(ref)) {
+                    cacheMetrics.recordHit();
                         s3.delete(ref);
                     }
                 } catch (Exception ignored) {

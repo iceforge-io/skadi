@@ -37,6 +37,9 @@ public class QueryV1Registry {
         private volatile String resultKey;
         private volatile String resultContentType;
 
+        // For UI/dashboard: where did this complete from? (CACHE_HIT, DB, etc.)
+        private volatile String lastSource;
+
         // Completes when the query reaches a terminal state.
         private final CompletableFuture<Void> completion = new CompletableFuture<>();
 
@@ -120,6 +123,18 @@ public class QueryV1Registry {
         public String resultKey() { return resultKey; }
         public String resultContentType() { return resultContentType; }
 
+
+        public String lastSource() { return lastSource; }
+
+        public void setLastSource(String source) {
+            this.lastSource = source;
+            this.updatedAt = Instant.now();
+        }
+
+        public void ensureStartedAt() {
+            if (this.startedAt == null) this.startedAt = Instant.now();
+        }
+
         public void setResultLocation(String bucket, String key, String contentType) {
             this.resultBucket = bucket;
             this.resultKey = key;
@@ -153,6 +168,14 @@ public class QueryV1Registry {
     public void remove(String queryId) {
         entries.remove(queryId);
     }
+    public java.util.List<Entry> recent(int limit) {
+        int lim = Math.max(1, Math.min(limit, 200));
+        return entries.values().stream()
+                .sorted(java.util.Comparator.comparing(QueryV1Registry.Entry::updatedAt).reversed())
+                .limit(lim)
+                .toList();
+    }
+
     private static Throwable rootCause(Throwable t) {
         if (t == null) return null;
         Throwable cur = t;

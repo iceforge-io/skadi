@@ -24,6 +24,17 @@ public class QueryRegistry {
         return Optional.ofNullable(map.get(queryId));
     }
 
+        public record Recent(String queryId, QueryModels.Status status, Instant updatedAt) {}
+
+    public java.util.List<Recent> recent(int limit) {
+        int lim = Math.max(1, Math.min(limit, 200));
+        return map.entrySet().stream()
+                .sorted(java.util.Comparator.comparing((java.util.Map.Entry<String, Entry> e) -> e.getValue().updatedAt()).reversed())
+                .limit(lim)
+                .map(e -> new Recent(e.getKey(), e.getValue().status(), e.getValue().updatedAt()))
+                .toList();
+    }
+
     public void put(String queryId, QueryModels.Status status,
                     ResultSetToS3ChunkWriter.S3ResultSetRef ref,
                     String error) {
