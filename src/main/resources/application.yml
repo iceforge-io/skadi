@@ -84,3 +84,10 @@ skadi:
         jdbcUrl: jdbc:h2:mem:skadi_demo;DB_CLOSE_DELAY=-1;DATABASE_TO_UPPER=FALSE
         username: sa
         password: ""
+
+  dashboard:
+    storageTtlSeconds: 300
+
+logging:
+  level:
+    org.iceforge.skadi.aws.s3.AwsSdkS3AccessLayer: INFO
