@@ -75,11 +75,24 @@ import org.iceforge.skadi.api.CacheMetricsRegistry;
                     cacheMetrics.recordHit();
                     QueryV1Registry.Entry hit = registry.getOrCreate(queryId, req);
                     hit.ensureStartedAt();
-                    hit.setLastSource("CACHE_HIT");
+                    // Distinguish cache hit store so the UI can show cache_local vs cache_s3.
+                    String cacheSource = "local".equalsIgnoreCase(cacheProps.getStore()) ? "CACHE_LOCAL" : "CACHE_S3";
+                    hit.setLastSource(cacheSource);
+
+                    // Best-effort: pull cached row-count from object metadata, if present.
+                    s3.head(ref).ifPresent(md -> {
+                        String rows = md.userMetadata().get("skadi-rows");
+                        if (rows != null) {
+                            try {
+                                long n = Long.parseLong(rows.trim());
+                                if (n > 0) hit.addRows(n);
+                            } catch (Exception ignore) { }
+                        }
+                    });
                     hit.setResultLocation(bucket, key, "application/vnd.apache.arrow.stream");
                     hit.markSucceeded();
 
-                    log.info("CACHE_HIT v1 queryId={} s3://{}/{}", queryId, bucket, key);
+                    log.info("CACHE_HIT v1 queryId={} source={} s3://{}/{}", queryId, cacheSource, bucket, key);
 
                     return ResponseEntity.ok(
                             new QueryV1Models.SubmitQueryResponse(
@@ -221,15 +234,24 @@ import org.iceforge.skadi.api.CacheMetricsRegistry;
                         }
 
                         long len = Files.size(tmp);
+
+                        // Persist basic execution metadata so cache hits can surface it in the UI.
+                        // - On S3 this is stored as user metadata.
+                        // - In local-store mode we persist it via a sidecar file (see LocalFsS3AccessLayer).
+                        java.util.Map<String, String> userMeta = new java.util.LinkedHashMap<>();
+                        if (e.rowsProduced() > 0) userMeta.put("skadi-rows", Long.toString(e.rowsProduced()));
+                        if (len > 0) userMeta.put("skadi-bytes", Long.toString(len));
+
                         try (InputStream in = Files.newInputStream(tmp)) {
                             if (len >= cacheProps.getArrowMultipartAboveBytes()) {
-                                s3.multipartUpload(ref, in, len, "application/vnd.apache.arrow.stream", java.util.Map.of());
+                                s3.multipartUpload(ref, in, len, "application/vnd.apache.arrow.stream", userMeta);
                             } else {
-                                s3.putStream(ref, in, len, "application/vnd.apache.arrow.stream", java.util.Map.of());
+                                s3.putStream(ref, in, len, "application/vnd.apache.arrow.stream", userMeta);
                             }
                         }
 
                         e.setResultLocation(ref.bucket(), ref.key(), "application/vnd.apache.arrow.stream");
+                        e.setLastSource("DB");
                         e.markSucceeded();
 
                     } catch (Exception ex) {

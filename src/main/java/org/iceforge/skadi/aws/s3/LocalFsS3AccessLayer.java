@@ -55,6 +55,53 @@ public class LocalFsS3AccessLayer implements S3AccessLayer {
         return p;
     }
 
+    private Path metaPathFor(S3Models.ObjectRef ref) {
+        Path p = pathFor(ref);
+        return p.resolveSibling(p.getFileName().toString() + ".meta");
+    }
+
+    private void writeMeta(S3Models.ObjectRef ref, String contentType, Map<String, String> userMetadata) {
+        try {
+            java.util.Properties props = new java.util.Properties();
+            if (contentType != null) props.setProperty("contentType", contentType);
+            if (userMetadata != null) {
+                for (var ent : userMetadata.entrySet()) {
+                    if (ent.getKey() != null && ent.getValue() != null) {
+                        props.setProperty("meta." + ent.getKey(), ent.getValue());
+                    }
+                }
+            }
+            Path meta = metaPathFor(ref);
+            Files.createDirectories(meta.getParent());
+            try (java.io.OutputStream out = Files.newOutputStream(meta)) {
+                props.store(out, "skadi local object metadata");
+            }
+        } catch (Exception ex) {
+            // Metadata is best-effort for UI; do not fail the upload.
+            log.debug("Failed to write local metadata for {}", ref, ex);
+        }
+    }
+
+    private java.util.Map<String, String> readMeta(S3Models.ObjectRef ref) {
+        Path meta = metaPathFor(ref);
+        if (!Files.exists(meta)) return Map.of();
+        try {
+            java.util.Properties props = new java.util.Properties();
+            try (java.io.InputStream in = Files.newInputStream(meta)) {
+                props.load(in);
+            }
+            java.util.Map<String, String> out = new java.util.LinkedHashMap<>();
+            for (String name : props.stringPropertyNames()) {
+                if (name != null && name.startsWith("meta.")) {
+                    out.put(name.substring("meta.".length()), props.getProperty(name));
+                }
+            }
+            return out;
+        } catch (Exception ex) {
+            return Map.of();
+        }
+    }
+
     @Override
     public String putBytes(S3Models.ObjectRef ref, byte[] bytes, String contentType, Map<String, String> userMetadata) {
         try {
@@ -63,6 +110,7 @@ public class LocalFsS3AccessLayer implements S3AccessLayer {
             Path tmp = Files.createTempFile(dst.getParent(), "skadi-", ".tmp");
             Files.write(tmp, bytes);
             Files.move(tmp, dst, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            writeMeta(ref, contentType, userMetadata);
             return "local-etag-" + bytes.length;
         } catch (IOException e) {
             throw new RuntimeException("Local putBytes failed for " + ref, e);
@@ -79,6 +127,7 @@ public class LocalFsS3AccessLayer implements S3AccessLayer {
                 Files.copy(src, tmp, StandardCopyOption.REPLACE_EXISTING);
             }
             Files.move(tmp, dst, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            writeMeta(ref, contentType, userMetadata);
             return "local-etag-" + contentLength;
         } catch (IOException e) {
             throw new RuntimeException("Local putStream failed for " + ref, e);
@@ -113,7 +162,21 @@ public class LocalFsS3AccessLayer implements S3AccessLayer {
             // Provide eTag and contentType to match the 7-arg constructor
             String eTag = "local-etag-" + len;
             String contentType = null;
-            return Optional.of(new S3Models.ObjectMetadata(ref.bucket(), ref.key(), len, eTag, contentType, lm, Map.of()));
+            Map<String, String> userMeta = readMeta(ref);
+
+            // Also read the stored contentType (if present) from the sidecar.
+            Path meta = metaPathFor(ref);
+            if (Files.exists(meta)) {
+                try {
+                    java.util.Properties props = new java.util.Properties();
+                    try (java.io.InputStream in = Files.newInputStream(meta)) {
+                        props.load(in);
+                    }
+                    contentType = props.getProperty("contentType");
+                } catch (Exception ignore) { }
+            }
+
+            return Optional.of(new S3Models.ObjectMetadata(ref.bucket(), ref.key(), len, eTag, contentType, lm, userMeta));
         } catch (IOException e) {
             throw new RuntimeException("Local head failed for " + ref, e);
         }
