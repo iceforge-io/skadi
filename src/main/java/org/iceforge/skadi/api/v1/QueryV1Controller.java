@@ -157,9 +157,7 @@ import org.iceforge.skadi.api.CacheMetricsRegistry;
 
                     return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                             .contentType(MediaType.APPLICATION_JSON)
-                            .body(out -> {
-                                new ObjectMapper().writeValue(out, status);
-                            });
+                            .body(out -> new ObjectMapper().writeValue(out, status));
                 }
 
                 if (e.state() != QueryV1Models.State.SUCCEEDED) return ResponseEntity.status(HttpStatus.CONFLICT).build();
@@ -220,7 +218,7 @@ import org.iceforge.skadi.api.CacheMetricsRegistry;
                                     allocator,
                                     counting,
                                     e::cancelRequested,
-                                    n -> e.addRows(n)
+                                    e::addRows
                             );
                             if (rows > 0 && e.rowsProduced() == 0) {
                                 e.addRows(rows);
@@ -296,7 +294,6 @@ import org.iceforge.skadi.api.CacheMetricsRegistry;
 
             private static final class CountingOutputStream extends FilterOutputStream {
                 private final QueryV1Registry.Entry entry;
-                private long bytes = 0;
 
                 private CountingOutputStream(OutputStream out, QueryV1Registry.Entry entry) {
                     super(out);
@@ -306,14 +303,12 @@ import org.iceforge.skadi.api.CacheMetricsRegistry;
                 @Override
                 public void write(int b) throws IOException {
                     out.write(b);
-                    bytes++;
                     entry.addBytes(1);
                 }
 
                 @Override
                 public void write(byte[] b, int off, int len) throws IOException {
                     out.write(b, off, len);
-                    bytes += len;
                     entry.addBytes(len);
                 }
             }
