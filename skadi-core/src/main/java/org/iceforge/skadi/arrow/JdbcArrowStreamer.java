@@ -168,6 +168,56 @@ public final class JdbcArrowStreamer {
         return totalRows;
     }
 
+    /**
+     * Streams a parameterized query by preparing a statement, binding parameters, and writing Arrow IPC.
+     *
+     * <p>This is a convenience overload for callers that have {@code sql + params} but don't want to manage
+     * the {@link PreparedStatement} lifecycle.
+     */
+    public static long stream(Connection conn,
+                              String sql,
+                              List<JdbcParam> params,
+                              int fetchSize,
+                              int batchRows,
+                              BufferAllocator allocator,
+                              OutputStream out,
+                              java.util.function.BooleanSupplier cancelRequested,
+                              java.util.function.IntConsumer onBatchRows) throws Exception {
+
+        try (PreparedStatement ps = conn.prepareStatement(sql,
+                ResultSet.TYPE_FORWARD_ONLY,
+                ResultSet.CONCUR_READ_ONLY)) {
+            if (fetchSize > 0) {
+                ps.setFetchSize(fetchSize);
+            }
+            bind(ps, params);
+            return stream(ps, batchRows, allocator, out, cancelRequested, onBatchRows);
+        }
+    }
+
+    /** Simple JDBC parameter descriptor for binding. */
+    public record JdbcParam(int index, Integer jdbcType, Object value) {}
+
+    private static void bind(PreparedStatement ps, List<JdbcParam> params) throws SQLException {
+        if (params == null || params.isEmpty()) return;
+        for (JdbcParam p : params) {
+            if (p == null) continue;
+            if (p.value() == null) {
+                if (p.jdbcType() != null) {
+                    ps.setNull(p.index(), p.jdbcType());
+                } else {
+                    ps.setObject(p.index(), null);
+                }
+            } else {
+                if (p.jdbcType() != null) {
+                    ps.setObject(p.index(), p.value(), p.jdbcType());
+                } else {
+                    ps.setObject(p.index(), p.value());
+                }
+            }
+        }
+    }
+
     private static Schema toArrowSchema(ResultSetMetaData md) throws SQLException {
         int n = md.getColumnCount();
         List<Field> fields = new ArrayList<>(n);
