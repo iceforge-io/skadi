@@ -112,6 +112,31 @@
       <version>42.7.7</version>
       <scope>test</scope>
     </dependency>
+
+    <!-- Connection pooling for JDBC executors -->
+    <dependency>
+      <groupId>com.zaxxer</groupId>
+      <artifactId>HikariCP</artifactId>
+    </dependency>
+
+    <!-- Arrow streaming (shared with skadi-server); required by Databricks executor -->
+    <dependency>
+      <groupId>org.apache.arrow</groupId>
+      <artifactId>arrow-vector</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.arrow</groupId>
+      <artifactId>arrow-memory-unsafe</artifactId>
+    </dependency>
+
+    <!-- Databricks driver is proprietary; keep as provided so CI can build without it. -->
+    <dependency>
+      <groupId>com.databricks</groupId>
+      <artifactId>databricks-jdbc</artifactId>
+      <version>2.6.40</version>
+      <scope>provided</scope>
+      <optional>true</optional>
+    </dependency>
   </dependencies>
 
   <build>

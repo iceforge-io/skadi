@@ -16,6 +16,16 @@ skadi:
         # users:
         #   test: test
 
+    databricks:
+      enabled: false
+      host: ""
+      http-path: ""
+      token: ""
+      max-pool-size: 5
+      connect-timeout: 10s
+      query-timeout: 5m
+      jdbc-properties: {}
+
 management:
   endpoints:
     web:

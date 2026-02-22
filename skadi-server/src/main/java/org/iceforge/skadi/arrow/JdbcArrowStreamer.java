@@ -165,12 +165,10 @@ public final class JdbcArrowStreamer {
             case Types.BIGINT -> new ArrowType.Int(64, true);
             case Types.FLOAT, Types.REAL ->  new ArrowType.FloatingPoint(FloatingPointPrecision.SINGLE);
             case Types.DOUBLE -> new ArrowType.FloatingPoint(FloatingPointPrecision.DOUBLE);
-            case Types.DECIMAL, Types.NUMERIC -> new ArrowType.Decimal(Math.max(precision, 38), Math.max(scale, 0), 128);
+            case Types.DECIMAL, Types.NUMERIC -> new ArrowType.Decimal(Math.max(1, precision), Math.max(0, scale), 128);
             case Types.DATE -> new ArrowType.Date(DateUnit.DAY);
-            case Types.TIMESTAMP, Types.TIMESTAMP_WITH_TIMEZONE -> new ArrowType.Timestamp(TimeUnit.MILLISECOND, "UTC");
-            case Types.CHAR, Types.VARCHAR, Types.LONGVARCHAR,
-                 Types.NCHAR, Types.NVARCHAR, Types.LONGNVARCHAR -> new ArrowType.Utf8();
-            case Types.BINARY, Types.VARBINARY, Types.LONGVARBINARY -> new ArrowType.Binary();
+            case Types.TIME -> new ArrowType.Time(TimeUnit.MILLISECOND, 32);
+            case Types.TIMESTAMP, Types.TIMESTAMP_WITH_TIMEZONE -> new ArrowType.Timestamp(TimeUnit.MILLISECOND, null);
             default -> new ArrowType.Utf8();
         };
     }
@@ -199,23 +197,18 @@ public final class JdbcArrowStreamer {
                     ((DecimalVector) v).setSafe(row, bd);
                 }
                 case Types.DATE -> {
-                    java.sql.Date d = rs.getDate(i);
-                    // Arrow DateUnit.DAY stores days since epoch
-                    int days = (int) d.toLocalDate().toEpochDay();
-                    ((DateDayVector) v).setSafe(row, days);
+                    Date d = rs.getDate(i);
+                    ((DateDayVector) v).setSafe(row, (int) d.toLocalDate().toEpochDay());
+                }
+                case Types.TIME -> {
+                    Time t = rs.getTime(i);
+                    ((TimeMilliVector) v).setSafe(row, (int) (t.toLocalTime().toNanoOfDay() / 1_000_000L));
                 }
                 case Types.TIMESTAMP, Types.TIMESTAMP_WITH_TIMEZONE -> {
                     Timestamp ts = rs.getTimestamp(i);
                     writeTimestampIntoVector(ts, v, row);
                 }
-                case Types.BINARY, Types.VARBINARY, Types.LONGVARBINARY -> {
-                    byte[] b = rs.getBytes(i);
-                    ((VarBinaryVector) v).setSafe(row, b);
-                }
-                default -> {
-                    String s = rs.getString(i);
-                    ((VarCharVector) v).setSafe(row, s.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-                }
+                default -> ((VarCharVector) v).setSafe(row, rs.getString(i).getBytes(java.nio.charset.StandardCharsets.UTF_8));
             }
         }
     }
@@ -223,32 +216,28 @@ public final class JdbcArrowStreamer {
     // Handles both TimeStampMilliVector and TimeStampMilliTZVector and falls back via reflection.
     private static void writeTimestampIntoVector(Timestamp ts, FieldVector vector, int rowIndex) {
         if (ts == null) {
-            // set null if available
-            try {
-                vector.getClass().getMethod("setNull", int.class).invoke(vector, rowIndex);
-            } catch (ReflectiveOperationException ignored) {
-                // ignore if not supported
-            }
+            vector.setNull(rowIndex);
             return;
         }
 
-        long millis = ts.toInstant().toEpochMilli();
+        long millis = ts.getTime();
 
-        if (vector instanceof org.apache.arrow.vector.TimeStampMilliVector) {
-            ((org.apache.arrow.vector.TimeStampMilliVector) vector).setSafe(rowIndex, millis);
-            return;
-        }
-        if (vector instanceof org.apache.arrow.vector.TimeStampMilliTZVector) {
-            ((org.apache.arrow.vector.TimeStampMilliTZVector) vector).setSafe(rowIndex, millis);
+        if (vector instanceof TimeStampMilliVector v) {
+            v.setSafe(rowIndex, millis);
             return;
         }
 
-        // Reflective fallback: call setSafe(int, long) if present
         try {
+            // TimeStampMilliTZVector has setSafe(int, long)
             java.lang.reflect.Method m = vector.getClass().getMethod("setSafe", int.class, long.class);
             m.invoke(vector, rowIndex, millis);
-        } catch (ReflectiveOperationException ex) {
-            throw new IllegalStateException("Unsupported timestamp vector type: " + vector.getClass(), ex);
+        } catch (Exception e) {
+            // Fallback: store as string.
+            if (vector instanceof VarCharVector vv) {
+                vv.setSafe(rowIndex, ts.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            } else {
+                vector.setNull(rowIndex);
+            }
         }
     }
 }
