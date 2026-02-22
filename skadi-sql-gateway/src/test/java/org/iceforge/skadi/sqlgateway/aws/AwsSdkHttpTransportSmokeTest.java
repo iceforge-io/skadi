@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 import software.amazon.awssdk.http.SdkHttpClient;
 import software.amazon.awssdk.http.apache.ApacheHttpClient;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.regions.Region;
 
 import java.net.URI;
 
@@ -22,6 +23,7 @@ class AwsSdkHttpTransportSmokeTest {
         try (SdkHttpClient http = ApacheHttpClient.builder().build();
              S3Client s3 = S3Client.builder()
                      .httpClient(http)
+                     .region(Region.US_EAST_1)
                      // Dummy endpoint; we're only validating wiring/classpath.
                      .endpointOverride(URI.create("http://localhost:0"))
                      .build()) {
@@ -30,4 +32,3 @@ class AwsSdkHttpTransportSmokeTest {
         }
     }
 }
-
