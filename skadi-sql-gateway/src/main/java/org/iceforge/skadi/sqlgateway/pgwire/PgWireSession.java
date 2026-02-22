@@ -17,6 +17,10 @@ import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
+import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.ResultSetMetaData;
+import java.sql.Statement;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.HashMap;
@@ -266,7 +270,7 @@ final class PgWireSession implements Runnable {
         String lower = s.toLowerCase(Locale.ROOT);
         if (lower.equals("select 1") || lower.equals("select 1;") || lower.equals("select 1 as one") || lower.equals("select 1 as one;")) {
             writeRowDescription(out, new String[]{"?column?"});
-            writeDataRow(out, new String[]{"1"});
+            PgRowWriter.writeDataRow(out, new String[]{"1"});
             writeCommandComplete(out, "SELECT 1");
             return;
         }
@@ -316,7 +320,7 @@ final class PgWireSession implements Runnable {
                 default -> "";
             };
             writeRowDescription(out, new String[]{setting});
-            writeDataRow(out, new String[]{val});
+            PgRowWriter.writeDataRow(out, new String[]{val});
             writeCommandComplete(out, "SHOW");
             return;
         }
@@ -324,7 +328,7 @@ final class PgWireSession implements Runnable {
         // Many drivers call select current_setting('...')
         if (lower.startsWith("select current_setting")) {
             writeRowDescription(out, new String[]{"current_setting"});
-            writeDataRow(out, new String[]{""});
+            PgRowWriter.writeDataRow(out, new String[]{""});
             writeCommandComplete(out, "SELECT 1");
             return;
         }
@@ -332,7 +336,7 @@ final class PgWireSession implements Runnable {
         // Many drivers call select version()
         if (lower.startsWith("select version()")) {
             writeRowDescription(out, new String[]{"version"});
-            writeDataRow(out, new String[]{"Skadi SQL Gateway (pgwire)"});
+            PgRowWriter.writeDataRow(out, new String[]{"Skadi SQL Gateway (pgwire)"});
             writeCommandComplete(out, "SELECT 1");
             return;
         }
@@ -340,9 +344,21 @@ final class PgWireSession implements Runnable {
         // --- MVP query support ---
         if (lower.equals("select 1") || lower.equals("select 1;") || lower.equals("select 1 as one") || lower.equals("select 1 as one;")) {
             writeRowDescription(out, new String[]{"?column?"});
-            writeDataRow(out, new String[]{"1"});
+            PgRowWriter.writeDataRow(out, new String[]{"1"});
             writeCommandComplete(out, "SELECT 1");
             return;
+        }
+
+        // If JDBC execution is configured, try to run the query and stream results.
+        SqlExecutorProvider executorProvider = SqlExecutorProviderHolder.get();
+        if (executorProvider != null) {
+            try {
+                streamJdbcQuery(out, executorProvider, s);
+                return;
+            } catch (Exception e) {
+                writeError(out, "XX000", "JDBC execution failed: " + e.getMessage());
+                return;
+            }
         }
 
         writeError(out, "0A000", "Query not supported yet (MVP): " + s);
@@ -351,9 +367,70 @@ final class PgWireSession implements Runnable {
     private static void writeRowSet(DataOutputStream out, MetadataRowSet rs) throws IOException {
         writeRowDescription(out, rs.columns().toArray(new String[0]));
         for (List<String> row : rs.rows()) {
-            writeDataRow(out, row.toArray(new String[0]));
+            PgRowWriter.writeDataRow(out, row.toArray(new String[0]));
         }
         writeCommandComplete(out, rs.commandTag());
+    }
+
+    private void streamJdbcQuery(DataOutputStream out, SqlExecutorProvider executorProvider, String sql) throws Exception {
+        Integer fetchSize = props.fetchSize();
+        Integer maxRows = props.maxRows();
+
+        try (Connection conn = executorProvider.getConnection();
+             Statement st = conn.createStatement()) {
+
+            if (fetchSize != null && fetchSize > 0) {
+                try {
+                    st.setFetchSize(fetchSize);
+                } catch (Exception ignored) {
+                }
+            }
+
+            if (maxRows != null && maxRows > 0) {
+                try {
+                    st.setMaxRows(maxRows);
+                } catch (Exception ignored) {
+                }
+            }
+
+            boolean hasResult = st.execute(sql);
+            if (!hasResult) {
+                writeCommandComplete(out, "OK");
+                return;
+            }
+
+            try (ResultSet rs = st.getResultSet()) {
+                ResultSetMetaData md = rs.getMetaData();
+                writeRowDescription(out, md);
+
+                final int colCount = md.getColumnCount();
+                long rows = 0;
+
+                // Chunking: flush every N rows to avoid buffering huge payloads in memory.
+                final int flushEvery = 256;
+                while (rs.next()) {
+                    String[] row = new String[colCount];
+                    for (int i = 1; i <= colCount; i++) {
+                        Object v = rs.getObject(i);
+                        if (v == null) {
+                            row[i - 1] = null;
+                        } else {
+                            // Text format: let driver/JVM format; clients parse based on OID.
+                            row[i - 1] = v.toString();
+                        }
+                    }
+
+                    PgRowWriter.writeDataRow(out, row);
+                    rows++;
+
+                    if (rows % flushEvery == 0) {
+                        out.flush();
+                    }
+                }
+
+                writeCommandComplete(out, "SELECT " + rows);
+            }
+        }
     }
 
     private boolean requiresPassword() {
@@ -485,7 +562,7 @@ final class PgWireSession implements Runnable {
             putCString(b, col);
             b.putInt(0); // table oid
             b.putShort((short) 0); // attr #
-            b.putInt(25); // type oid TEXT
+            b.putInt(PgType.TEXT); // type oid TEXT
             b.putShort((short) -1); // size
             b.putInt(0); // type modifier
             b.putShort((short) 0); // format code 0=text
@@ -496,22 +573,46 @@ final class PgWireSession implements Runnable {
         out.write(b.array(), 0, msgLen);
     }
 
-    private static void writeDataRow(DataOutputStream out, String[] values) throws IOException {
-        ByteBuffer b = ByteBuffer.allocate(1024).order(ByteOrder.BIG_ENDIAN);
-        b.putShort((short) values.length);
-        for (String v : values) {
-            if (v == null) {
-                b.putInt(-1);
-            } else {
-                byte[] bytes = v.getBytes(StandardCharsets.UTF_8);
-                b.putInt(bytes.length);
-                b.put(bytes);
+    private static void writeRowDescription(DataOutputStream out, ResultSetMetaData md) throws IOException {
+        try {
+            int fieldCount = md.getColumnCount();
+            ByteBuffer b = ByteBuffer.allocate(4096).order(ByteOrder.BIG_ENDIAN);
+            b.putShort((short) fieldCount);
+            for (int i = 1; i <= fieldCount; i++) {
+                String col = md.getColumnLabel(i);
+                putCString(b, col == null ? ("col_" + i) : col);
+                b.putInt(0); // table oid
+                b.putShort((short) 0); // attr #
+
+                int oid = JdbcToPgTypeMapper.toPgOid(md, i);
+                b.putInt(oid);
+
+                b.putShort((short) -1); // size (unknown / variable)
+
+                int typmod = 0;
+                if (oid == PgType.NUMERIC) {
+                    typmod = JdbcToPgTypeMapper.numericTypmod(md.getPrecision(i), md.getScale(i));
+                }
+                b.putInt(typmod);
+
+                b.putShort((short) 0); // format code 0=text
+
+                if (b.remaining() < 256) {
+                    // grow buffer if needed
+                    ByteBuffer nb = ByteBuffer.allocate(b.capacity() * 2).order(ByteOrder.BIG_ENDIAN);
+                    b.flip();
+                    nb.put(b);
+                    b = nb;
+                }
             }
+
+            int msgLen = b.position();
+            out.writeByte('T');
+            out.writeInt(4 + msgLen);
+            out.write(b.array(), 0, msgLen);
+        } catch (Exception e) {
+            throw new IOException("Failed to write RowDescription", e);
         }
-        int msgLen = b.position();
-        out.writeByte('D');
-        out.writeInt(4 + msgLen);
-        out.write(b.array(), 0, msgLen);
     }
 
     private static void writeError(DataOutputStream out, String sqlState, String message) throws IOException {

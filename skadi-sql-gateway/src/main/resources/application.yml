@@ -16,6 +16,14 @@ skadi:
         # users:
         #   test: test
 
+      # Protect against accidental large scans.
+      # If set, Skadi will call JDBC Statement#setMaxRows(maxRows) before executing.
+      # max-rows: 100000
+
+      # Hint to JDBC driver for streaming fetch.
+      # If set, Skadi will call JDBC Statement#setFetchSize(fetchSize) before executing.
+      # fetch-size: 1000
+
     databricks:
       enabled: false
       host: ""
@@ -25,6 +33,12 @@ skadi:
       connect-timeout: 10s
       query-timeout: 5m
       jdbc-properties: {}
+
+# Timestamp/timezone behavior (POC):
+# - Columns reported as JDBC TIMESTAMP are advertised as PostgreSQL TIMESTAMP (OID 1114).
+# - Columns reported as JDBC TIMESTAMP_WITH_TIMEZONE are advertised as PostgreSQL TIMESTAMPTZ (OID 1184).
+# - Values are currently sent in *text* format using Java's toString() for each cell.
+#   If Tableau/JDBC requires ISO-8601 formatting, we'll normalize next.
 
 management:
   endpoints:

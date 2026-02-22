@@ -22,7 +22,9 @@ public record SqlGatewayProperties(
             boolean enabled,
             String host,
             int port,
-            Auth auth
+            Auth auth,
+            Integer maxRows,
+            Integer fetchSize
     ) {
         public record Auth(
                 String mode,
