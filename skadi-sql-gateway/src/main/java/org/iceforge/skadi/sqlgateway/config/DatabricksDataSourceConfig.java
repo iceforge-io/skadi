@@ -4,6 +4,7 @@ import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import org.iceforge.skadi.sqlgateway.executor.DatabricksJdbcExecutor;
 import org.iceforge.skadi.sqlgateway.executor.SqlExecutor;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -20,6 +21,7 @@ public class DatabricksDataSourceConfig {
 
     @Bean
     @ConditionalOnProperty(prefix = "skadi.sql-gateway.databricks", name = "enabled", havingValue = "true")
+    @ConditionalOnMissingBean(name = "databricksDataSource")
     public DataSource databricksDataSource(DatabricksProperties props) {
         HikariConfig cfg = new HikariConfig();
         cfg.setPoolName("dbx-warehouse");
@@ -65,4 +67,3 @@ public class DatabricksDataSourceConfig {
         return sj.toString();
     }
 }
-

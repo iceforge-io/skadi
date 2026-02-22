@@ -76,7 +76,7 @@ public class DatabricksJdbcExecutor implements SqlExecutor {
                     }
 
                     try (BufferAllocator allocator = new RootAllocator()) {
-                        long rows = JdbcArrowStreamer.stream(conn, request.sql(), fetchSize, batchRows, allocator, out, cancel::get);
+                        long rows = JdbcArrowStreamer.stream(ps, batchRows, allocator, out, cancel::get);
 
                         Optional<String> qid = DatabricksQueryIdExtractor.fromWarnings(ps.getWarnings());
                         remoteQueryId = qid.orElse(null);

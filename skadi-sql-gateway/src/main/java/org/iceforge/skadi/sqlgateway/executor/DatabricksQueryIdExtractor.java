@@ -7,9 +7,9 @@ import java.util.regex.Pattern;
 
 final class DatabricksQueryIdExtractor {
     private static final Pattern[] PATTERNS = new Pattern[]{
-            Pattern.compile("(?i)\bquery\s*id\b\s*[:=]\s*([A-Za-z0-9_-]+)"),
-            Pattern.compile("(?i)\bstatement\s*id\b\s*[:=]\s*([A-Za-z0-9_-]+)"),
-            Pattern.compile("(?i)\bquery\b\s*([A-Za-z0-9_-]{8,})")
+            Pattern.compile("(?i)\\bquery\\s*id\\b\\s*[:=]\\s*([A-Za-z0-9_-]+)"),
+            Pattern.compile("(?i)\\bstatement\\s*id\\b\\s*[:=]\\s*([A-Za-z0-9_-]+)"),
+            Pattern.compile("(?i)\\bquery\\b\\s*([A-Za-z0-9_-]{8,})")
     };
 
     private DatabricksQueryIdExtractor() {
@@ -32,4 +32,3 @@ final class DatabricksQueryIdExtractor {
         return Optional.empty();
     }
 }
-
