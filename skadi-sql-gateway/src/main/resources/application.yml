@@ -7,6 +7,15 @@ skadi:
     advertised-host: localhost
     advertised-port: 8090
 
+    pgwire:
+      enabled: false
+      host: 0.0.0.0
+      port: 15432
+      auth:
+        mode: trust # trust | password
+        # users:
+        #   test: test
+
 management:
   endpoints:
     web:

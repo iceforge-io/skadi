@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  This file is intentionally empty.
+
+  It exists to avoid some Maven environments failing plugin prefix resolution for spring-boot.
+  The build still uses the configured spring-boot-maven-plugin in the module POM.
+-->
+<plugin>
+</plugin>
+
