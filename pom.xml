@@ -1,194 +1,111 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0"
-		 xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-		 xsi:schemaLocation="
-           http://maven.apache.org/POM/4.0.0
-           http://maven.apache.org/xsd/maven-4.0.0.xsd">
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
 
-	<modelVersion>4.0.0</modelVersion>
+  <groupId>org.iceforge</groupId>
+  <artifactId>skadi-parent</artifactId>
+  <version>0.1.1-SNAPSHOT</version>
+  <packaging>pom</packaging>
+  <name>skadi-parent</name>
 
-	<parent>
-		<groupId>org.springframework.boot</groupId>
-		<artifactId>spring-boot-starter-parent</artifactId>
-		<version>3.5.6</version>
-		<relativePath/>
-	</parent>
+  <modules>
+    <module>skadi-core</module>
+    <module>skadi-server</module>
+    <module>skadi-sql-gateway</module>
+  </modules>
 
-	<groupId>org.iceforge</groupId>
-	<artifactId>skadi</artifactId>
-	<version>0.1.1-SNAPSHOT</version>
-	<name>skadi</name>
-	<properties>
-		<java.version>17</java.version>
-		<spring-cloud.version>2024.0.0</spring-cloud.version>
-		<arrow.version>16.1.0</arrow.version>
-		<!-- override Spring Boot managed deps to clear Mend warnings -->
-		<logback.version>1.5.19</logback.version>        <!-- fixes CVE-2025-11226 -->
-		<tomcat.version>10.1.47</tomcat.version>         <!-- fixes CVE-2025-61795 -->
-		<commons-lang3.version>3.18.0</commons-lang3.version> <!-- fixes CVE-2025-48924 -->
-		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-		<project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
-	</properties>
+  <properties>
+    <java.version>17</java.version>
+    <spring-boot.version>3.5.6</spring-boot.version>
+    <spring-cloud.version>2024.0.0</spring-cloud.version>
+    <arrow.version>16.1.0</arrow.version>
 
-	<dependencyManagement>
-		<dependencies>
-			<dependency>
-				<groupId>software.amazon.awssdk</groupId>
-				<artifactId>bom</artifactId>
-				<version>2.25.70</version>
-				<type>pom</type>
-				<scope>import</scope>
-			</dependency>
-			<dependency>
-				<groupId>org.apache.arrow</groupId>
-				<artifactId>arrow-bom</artifactId>
-				<version>${arrow.version}</version>
-				<type>pom</type>
-				<scope>import</scope>
-			</dependency>
+    <!-- override Spring Boot managed deps to clear Mend warnings -->
+    <logback.version>1.5.19</logback.version>
+    <tomcat.version>10.1.47</tomcat.version>
+    <commons-lang3.version>3.18.0</commons-lang3.version>
 
-			<dependency>
-				<groupId>org.springframework.cloud</groupId>
-				<artifactId>spring-cloud-dependencies</artifactId>
-				<version>${spring-cloud.version}</version>
-				<type>pom</type>
-				<scope>import</scope>
-			</dependency>
-			<dependency>
-				<groupId>net.minidev</groupId>
-				<artifactId>json-smart</artifactId>
-				<version>2.5.2</version>
-			</dependency>
-			<dependency>
-				<groupId>org.apache.commons</groupId>
-				<artifactId>commons-compress</artifactId>
-				<version>1.26.0</version>
-			</dependency>
-			<dependency>
-				<groupId>io.netty</groupId>
-				<artifactId>netty-bom</artifactId>
-				<version>4.1.130.Final</version>
-				<type>pom</type>
-				<scope>import</scope>
-			</dependency>
-		</dependencies>
-	</dependencyManagement>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+  </properties>
 
-	<dependencies>
-		<!-- REST / Web -->
-		<dependency>
-			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-web</artifactId>
-		</dependency>
+  <!-- This POM can act as a lightweight BOM that modules may import -->
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-dependencies</artifactId>
+        <version>${spring-boot.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
 
-		<!-- Actuator (optional but recommended) -->
-		<dependency>
-			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-actuator</artifactId>
-		</dependency>
+      <dependency>
+        <groupId>software.amazon.awssdk</groupId>
+        <artifactId>bom</artifactId>
+        <version>2.25.70</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
 
-		<!-- Testing -->
-		<dependency>
-			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-test</artifactId>
-			<scope>test</scope>
-		</dependency>
+      <dependency>
+        <groupId>org.apache.arrow</groupId>
+        <artifactId>arrow-bom</artifactId>
+        <version>${arrow.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
 
-		<!-- S3 client -->
-		<dependency>
-			<groupId>software.amazon.awssdk</groupId>
-			<artifactId>s3</artifactId>
-		</dependency>
-		<dependency>
-			<groupId>com.h2database</groupId>
-			<artifactId>h2</artifactId>
-			<version>2.4.240</version>
-		</dependency>
-		<dependency>
-			<groupId>com.databricks</groupId>
-			<artifactId>databricks-jdbc</artifactId>
-			<version>2.6.40</version>
-		</dependency>
-		<dependency>
-			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-webflux</artifactId>
-		</dependency>
+      <dependency>
+        <groupId>org.springframework.cloud</groupId>
+        <artifactId>spring-cloud-dependencies</artifactId>
+        <version>${spring-cloud.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
 
-		<!-- Arrow IPC streaming (Option A: HTTP + Arrow stream) -->
-		<dependency>
-			<groupId>org.apache.arrow</groupId>
-			<artifactId>arrow-vector</artifactId>
-		</dependency>
-		<dependency>
-			<groupId>org.apache.arrow</groupId>
-			<artifactId>arrow-memory-unsafe</artifactId>
-		</dependency>
+      <!-- Pin known transitive versions (Mend warnings / CVEs) -->
+      <dependency>
+        <groupId>ch.qos.logback</groupId>
+        <artifactId>logback-core</artifactId>
+        <version>${logback.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>ch.qos.logback</groupId>
+        <artifactId>logback-classic</artifactId>
+        <version>${logback.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.tomcat.embed</groupId>
+        <artifactId>tomcat-embed-core</artifactId>
+        <version>${tomcat.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.commons</groupId>
+        <artifactId>commons-lang3</artifactId>
+        <version>${commons-lang3.version}</version>
+      </dependency>
 
-		<dependency>
-			<groupId>org.testcontainers</groupId>
-			<artifactId>testcontainers</artifactId>
-			<version>1.20.4</version>
-			<scope>test</scope>
-		</dependency>
-		<dependency>
-			<groupId>org.testcontainers</groupId>
-			<artifactId>junit-jupiter</artifactId>
-			<version>1.20.4</version>
-			<scope>test</scope>
-		</dependency>
-		<dependency>
-			<groupId>org.testcontainers</groupId>
-			<artifactId>localstack</artifactId>
-			<version>1.20.4</version>
-			<scope>test</scope>
-		</dependency>
-		<!-- Fix CVE-2025-11226 (logback <= 1.5.18) -->
-		<dependency>
-			<groupId>ch.qos.logback</groupId>
-			<artifactId>logback-core</artifactId>
-			<version>1.5.19</version>
-		</dependency>
-		<dependency>
-			<groupId>ch.qos.logback</groupId>
-			<artifactId>logback-classic</artifactId>
-			<version>1.5.19</version>
-		</dependency>
-
-		<!-- Fix CVE-2025-61795 (Tomcat <= 10.1.46) -->
-		<dependency>
-			<groupId>org.apache.tomcat.embed</groupId>
-			<artifactId>tomcat-embed-core</artifactId>
-			<version>10.1.47</version>
-		</dependency>
-
-		<!-- Fix CVE-2025-48924 (commons-lang3 < 3.18.0) -->
-		<dependency>
-			<groupId>org.apache.commons</groupId>
-			<artifactId>commons-lang3</artifactId>
-			<version>3.18.0</version>
-		</dependency>
-
-	</dependencies>
-
-	<build>
-		<plugins>
-			<plugin>
-				<groupId>org.springframework.boot</groupId>
-				<artifactId>spring-boot-maven-plugin</artifactId>
-			</plugin>
-			<plugin>
-				<groupId>org.apache.maven.plugins</groupId>
-				<artifactId>maven-surefire-plugin</artifactId>
-				<version>3.3.1</version>
-				<configuration>
-					<argLine>
-						--add-opens=java.base/java.nio=ALL-UNNAMED
-						--add-opens=java.base/sun.nio.ch=ALL-UNNAMED
-						--add-opens=jdk.unsupported/sun.misc=ALL-UNNAMED
-						--add-opens=java.base/jdk.internal.misc=ALL-UNNAMED
-					</argLine>
-				</configuration>
-			</plugin>
-		</plugins>
-	</build>
+      <!-- Other pins used today -->
+      <dependency>
+        <groupId>net.minidev</groupId>
+        <artifactId>json-smart</artifactId>
+        <version>2.5.2</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.commons</groupId>
+        <artifactId>commons-compress</artifactId>
+        <version>1.26.0</version>
+      </dependency>
+      <dependency>
+        <groupId>io.netty</groupId>
+        <artifactId>netty-bom</artifactId>
+        <version>4.1.130.Final</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
 
 </project>
