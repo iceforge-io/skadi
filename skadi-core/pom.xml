@@ -1,0 +1,55 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>org.iceforge</groupId>
+    <artifactId>skadi-parent</artifactId>
+    <version>0.1.1-SNAPSHOT</version>
+    <relativePath>../pom.xml</relativePath>
+  </parent>
+
+  <artifactId>skadi-core</artifactId>
+  <packaging>jar</packaging>
+  <name>skadi-core</name>
+
+  <properties>
+    <maven.compiler.release>${java.version}</maven.compiler.release>
+  </properties>
+
+  <!-- Keep core free of Spring Boot; depend on plain libraries only -->
+  <dependencies>
+    <dependency>
+      <groupId>org.apache.arrow</groupId>
+      <artifactId>arrow-vector</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.arrow</groupId>
+      <artifactId>arrow-memory-unsafe</artifactId>
+    </dependency>
+
+    <dependency>
+      <groupId>software.amazon.awssdk</groupId>
+      <artifactId>s3</artifactId>
+    </dependency>
+
+    <!-- Testing (kept light) -->
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <version>5.11.4</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>3.3.1</version>
+      </plugin>
+    </plugins>
+  </build>
+</project>

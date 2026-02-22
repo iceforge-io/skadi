@@ -1,0 +1,14 @@
+server:
+  port: 8090
+
+skadi:
+  sql-gateway:
+    # Config stub; will be used once the PG wire-protocol listener exists.
+    advertised-host: localhost
+    advertised-port: 8090
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus

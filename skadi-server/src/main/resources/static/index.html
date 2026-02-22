@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Skadi Monitoring</title>
+
+  <link rel="stylesheet" href="/skadi-ui.css" />
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+</head>
+
+<body>
+  <div id="root"></div>
+
+  <script>
+    const e = React.createElement;
+
+    /* ---------- SAFE FETCH ---------- */
+    function safeFetch(url, fallback) {
+      return fetch(url)
+        .then(r => r.ok ? r.json() : fallback)
+        .catch(() => fallback);
+    }
+
+    function fmtDuration(ms) {
+      if (ms == null) return "—";
+      if (ms < 1000) return `${Math.round(ms)} ms`;
+      const s = ms / 1000;
+      if (s < 60) return `${s.toFixed(2)} s`;
+      const m = Math.floor(s / 60);
+      const rem = Math.round(s % 60).toString().padStart(2, "0");
+      return `${m}:${rem} min`;
+    }
+
+    function fmtDateTime(iso) {
+      if (!iso) return "—";
+      const d = new Date(iso);
+      return d.toLocaleString([], { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+    }
+
+    function shortId(id) {
+      if (!id) return "—";
+      const s = String(id);
+      return s.length <= 6 ? s : s.slice(-6);
+    }
+
+    function abbrevText(text, max) {
+      if (text == null) return "";
+      const s = String(text).replace(/\s+/g, " ").trim();
+      const m = Math.max(10, max || 90);
+      return s.length <= m ? s : (s.slice(0, m - 3) + "...");
+    }
+
+    /* ---------- DASHBOARD ---------- */
+    function Monitoring() {
+      const [window, setWindow] = React.useState("1h");
+      const [live, setLive] = React.useState({ runningUncached: 0, runningCached: 0, clusterNodes: 1, updatedAtIso: new Date().toISOString() });
+      const [peers, setPeers] = React.useState([]);
+      const [history, setHistory] = React.useState([]);
+      const [series, setSeries] = React.useState([]);
+
+      // Live KPIs (fast)
+      React.useEffect(() => {
+        function refresh() {
+          safeFetch("/api/metrics/live", live).then(setLive);
+          safeFetch("/api/peers", []).then(data => Array.isArray(data) ? setPeers(data) : setPeers([]));
+        }
+        refresh();
+        const t = setInterval(refresh, 3000);
+        return () => clearInterval(t);
+      }, []);
+
+      // Time series (slower)
+      React.useEffect(() => {
+        function refreshSeries() {
+          safeFetch(`/api/metrics/timeseries?window=${encodeURIComponent(window)}`, []).then(data =>
+            Array.isArray(data) ? setSeries(data) : setSeries([])
+          );
+        }
+        refreshSeries();
+        const t = setInterval(refreshSeries, 8000);
+        return () => clearInterval(t);
+      }, [window]);
+
+      // History (medium)
+      React.useEffect(() => {
+        function refreshHistory() {
+          safeFetch("/api/queries/history?limit=200", []).then(data =>
+            Array.isArray(data) ? setHistory(data) : setHistory([])
+          );
+        }
+        refreshHistory();
+        const t = setInterval(refreshHistory, 6000);
+        return () => clearInterval(t);
+      }, []);
+
+      // Chart.js line chart
+      React.useEffect(() => {
+        const canvas = document.getElementById("durationChart");
+        if (!canvas) return;
+
+        // Destroy previous chart instance if any
+        if (canvas._chart) {
+          canvas._chart.destroy();
+          canvas._chart = null;
+        }
+
+        const labels = (series || []).map(p => {
+          const d = new Date(p.tsIso);
+          return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        });
+
+        const cached = (series || []).map(p => (p.cachedMs == null ? null : p.cachedMs));
+        const uncached = (series || []).map(p => (p.uncachedMs == null ? null : p.uncachedMs));
+
+        const tickColor = getComputedStyle(document.documentElement).getPropertyValue("--muted").trim() || "#6b7280";
+        const gridColor = getComputedStyle(document.documentElement).getPropertyValue("--grid").trim() || "#f3f4f6";
+
+        canvas._chart = new Chart(canvas, {
+          type: "line",
+          data: {
+            labels,
+            datasets: [
+              {
+                label: "Cached",
+                data: cached,
+                borderColor: getComputedStyle(document.documentElement).getPropertyValue("--accent-cached").trim() || "#0ea5a4",
+                borderWidth: 2,
+                // If a test run only populates a single bucket, a pure line won't render.
+                // Keep points tiny so single-bucket activity is still visible, Databricks-style.
+                pointRadius: 2,
+                pointHoverRadius: 4,
+                pointHitRadius: 8,
+                tension: 0.25,
+                spanGaps: true
+              },
+              {
+                label: "Non-cached",
+                data: uncached,
+                borderColor: getComputedStyle(document.documentElement).getPropertyValue("--accent-uncached").trim() || "#f59e0b",
+                borderWidth: 2,
+                pointRadius: 2,
+                pointHoverRadius: 4,
+                pointHitRadius: 8,
+                tension: 0.25,
+                spanGaps: true
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: {
+                position: "top",
+                labels: {
+                  color: getComputedStyle(document.documentElement).getPropertyValue("--muted").trim() || "#6b7280",
+                  boxWidth: 14,
+                  boxHeight: 2
+                }
+              },
+              tooltip: {
+                callbacks: {
+                  label: (ctx) => `${ctx.dataset.label}: ${fmtDuration(ctx.parsed.y)}`
+                }
+              }
+            },
+            scales: {
+              x: {
+                grid: { color: gridColor },
+                ticks: {
+                  color: tickColor,
+                  font: { size: 10 },
+                  maxRotation: 0,
+                  minRotation: 0,
+                  autoSkip: true,
+                  maxTicksLimit: 10
+                }
+              },
+              y: {
+                grid: { color: gridColor },
+                ticks: {
+                  color: tickColor,
+                  font: { size: 10 },
+                  callback: (v) => fmtDuration(v)
+                }
+              }
+            }
+          }
+        });
+      }, [series]);
+
+      const clusterNodes = peers && peers.length ? peers.length : (live.clusterNodes || 1);
+
+      return e("div", { className: "skadi-page" },
+
+        // KPI strip
+        e("div", { className: "kpi-strip" },
+          e("div", { className: "kpi" },
+            e("div", { className: "kpi-label" }, "RUNNING · UNCACHED"),
+            e("div", { className: "kpi-value uncached" }, live.runningUncached ?? 0)
+          ),
+          e("div", { className: "kpi" },
+            e("div", { className: "kpi-label" }, "RUNNING · CACHE HIT"),
+            e("div", { className: "kpi-value cached" }, live.runningCached ?? 0)
+          ),
+          e("div", { className: "kpi" },
+            e("div", { className: "kpi-label" }, "CLUSTER NODES"),
+            e("div", { className: "kpi-value nodes" }, clusterNodes)
+          )
+        ),
+
+        // Time-series panel
+        e("div", { className: "panel" },
+          e("div", { className: "panel-header" },
+            e("div", null,
+              e("div", { className: "panel-title" }, "Query duration"),
+              e("div", { className: "panel-subtitle" }, `Cached vs non-cached duration · updated ${new Date(live.updatedAtIso || Date.now()).toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"})}`)
+            ),
+            e("div", { className: "controls" },
+              e("select", {
+                className: "select",
+                value: window,
+                onChange: (ev) => setWindow(ev.target.value)
+              },
+                e("option", { value: "15m" }, "Last 15m"),
+                e("option", { value: "1h" }, "Last 1h"),
+                e("option", { value: "6h" }, "Last 6h"),
+                e("option", { value: "24h" }, "Last 24h")
+              )
+            )
+          ),
+          e("div", { style: { width: "100%", height: "280px" } },
+            e("canvas", { id: "durationChart" })
+          )
+        ),
+
+        // History panel
+        e("div", { className: "panel" },
+          e("div", { className: "panel-header" },
+            e("div", null,
+              e("div", { className: "panel-title" }, "History"),
+              e("div", { className: "panel-subtitle" }, "Most recent queries")
+            ),
+            e("div", { className: "controls" },
+              e("span", { className: "panel-subtitle" }, `${history.length || 0} rows`)
+            )
+          ),
+
+          e("div", { className: "table-wrap" },
+            e("table", null,
+              e("thead", null,
+                e("tr", null,
+                  e("th", null, "Time"),
+                  e("th", null, "Query ID"),
+                  e("th", null, "SQL"),
+                  e("th", null, "Result"),
+                  e("th", null, "Duration"),
+                  e("th", null, "Rows"),
+                  e("th", null, "Status")
+                )
+              ),
+              e("tbody", null,
+                (history || []).map(q =>
+                  e("tr", { key: q.queryId },
+                    e("td", null, fmtDateTime(q.startedAtIso)),
+                    e("td", null,
+                      e("a", {
+                        href: `/api/v1/queries/${encodeURIComponent(q.queryId)}/status`,
+                        title: q.queryId || ""
+                      }, shortId(q.queryId))
+                    ),
+                    e("td", {
+                      title: (q.sql || "").toString()
+                    }, abbrevText(q.sql || "", 110)),
+                    e("td", null,
+                      (q.source || "-").toString().startsWith("cache_")
+                        ? e("span", { className: "badge cached", title: q.source }, q.source)
+                        : e("span", { className: "badge uncached", title: q.source || "db" }, (q.source || "db"))
+                    ),
+                    e("td", null, fmtDuration(q.durationMs)),
+                    e("td", null, (q.rows == null ? "—" : q.rows)),
+                    e("td", null,
+                      q.status === "RUNNING"
+                        ? e("span", { className: "status running" }, "RUNNING")
+                        : q.status === "FAILED" || q.status === "CANCELED"
+                          ? e("span", { className: "status failed" }, q.status)
+                          : e("span", { className: "status ok" }, q.status || "OK")
+                    )
+                  )
+                ),
+                (!history || history.length === 0) &&
+                  e("tr", null,
+                    e("td", { colSpan: 7, style: { padding: "14px 12px", color: "var(--muted)" } },
+                      "No history yet."
+                    )
+                  )
+              )
+            )
+          )
+        )
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root"))
+      .render(e(Monitoring));
+  </script>
+</body>
+</html>
