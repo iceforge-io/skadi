@@ -1,6 +1,9 @@
 package org.iceforge.skadi.sqlgateway.pgwire;
 
 import org.iceforge.skadi.sqlgateway.config.SqlGatewayProperties;
+import org.iceforge.skadi.sqlgateway.metadata.MetadataCache;
+import org.iceforge.skadi.sqlgateway.metadata.MetadataQueryRouter;
+import org.iceforge.skadi.sqlgateway.metadata.MetadataRowSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -14,16 +17,23 @@ import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
+import java.time.Duration;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 
 final class PgWireSession implements Runnable {
     private static final Logger log = LoggerFactory.getLogger(PgWireSession.class);
 
+    private static final MetadataCache METADATA_CACHE = new MetadataCache(Clock.systemUTC());
+
     private final Socket socket;
     private final SqlGatewayProperties.PgWire props;
+    private final MetadataQueryRouter metadata;
 
     // Minimal extended-query state.
     private String lastPreparedSql;
@@ -34,6 +44,13 @@ final class PgWireSession implements Runnable {
     PgWireSession(Socket socket, SqlGatewayProperties.PgWire props) {
         this.socket = Objects.requireNonNull(socket);
         this.props = Objects.requireNonNull(props);
+
+        // Metadata facade defaults. (We can plumb in SqlGatewayProperties.Metadata once PgWireServer passes it.)
+        Duration ttl = Duration.ofMinutes(2);
+        String pgDb = "postgres";
+        String catalog = "main";
+        String schema = "public";
+        this.metadata = new MetadataQueryRouter(METADATA_CACHE, ttl, pgDb, catalog, schema);
     }
 
     @Override
@@ -193,19 +210,19 @@ final class PgWireSession implements Runnable {
                     // Payload: portal name (cstring) + int32 maxRows
                     ByteBuffer mb = ByteBuffer.wrap(msg).order(ByteOrder.BIG_ENDIAN);
                     readCString(mb); // portal name
-                    int maxRows = mb.getInt(); // must consume to keep protocol in sync
+                    mb.getInt(); // maxRows
 
                     String sql = this.lastPreparedSql;
                     handleExecute(out, sql);
+                    writeReady(out);
                     out.flush();
                     continue;
                 }
 
                 if (type == 'C') { // Close
                     ByteBuffer mb = ByteBuffer.wrap(msg).order(ByteOrder.BIG_ENDIAN);
-                    byte what = mb.get();
+                    mb.get();
                     readCString(mb); // name
-                    // We don't actually track named statements/portals yet.
                     writeCloseComplete(out);
                     out.flush();
                     continue;
@@ -240,6 +257,12 @@ final class PgWireSession implements Runnable {
             return;
         }
 
+        Optional<MetadataRowSet> meta = metadata.tryAnswer(s);
+        if (meta.isPresent()) {
+            writeRowSet(out, meta.get());
+            return;
+        }
+
         String lower = s.toLowerCase(Locale.ROOT);
         if (lower.equals("select 1") || lower.equals("select 1;") || lower.equals("select 1 as one") || lower.equals("select 1 as one;")) {
             writeRowDescription(out, new String[]{"?column?"});
@@ -262,6 +285,12 @@ final class PgWireSession implements Runnable {
         String s = sql == null ? "" : sql.trim();
         if (s.isEmpty()) {
             writeEmptyQueryResponse(out);
+            return;
+        }
+
+        Optional<MetadataRowSet> meta = metadata.tryAnswer(s);
+        if (meta.isPresent()) {
+            writeRowSet(out, meta.get());
             return;
         }
 
@@ -317,6 +346,14 @@ final class PgWireSession implements Runnable {
         }
 
         writeError(out, "0A000", "Query not supported yet (MVP): " + s);
+    }
+
+    private static void writeRowSet(DataOutputStream out, MetadataRowSet rs) throws IOException {
+        writeRowDescription(out, rs.columns().toArray(new String[0]));
+        for (List<String> row : rs.rows()) {
+            writeDataRow(out, row.toArray(new String[0]));
+        }
+        writeCommandComplete(out, rs.commandTag());
     }
 
     private boolean requiresPassword() {
