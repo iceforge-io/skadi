@@ -13,6 +13,7 @@ final class SqlNormalizer {
      * <ul>
      *   <li>Strip line and block comments</li>
      *   <li>Collapse all whitespace runs to a single space</li>
+     *   <li>Normalize spacing around common punctuation (outside literals)</li>
      *   <li>Trim</li>
      *   <li>Upper-case outside string literals (so casing differences don't split cache)</li>
      * </ul>
@@ -21,7 +22,8 @@ final class SqlNormalizer {
         if (sql == null) return "";
         String noComments = stripComments(sql);
         String collapsed = collapseWhitespace(noComments);
-        return uppercaseOutsideLiterals(collapsed.trim());
+        String punct = normalizePunctuationSpacing(collapsed);
+        return uppercaseOutsideLiterals(punct.trim());
     }
 
     static String collapseWhitespace(String sql) {
@@ -39,6 +41,85 @@ final class SqlNormalizer {
                 inWs = false;
             }
         }
+        return sb.toString();
+    }
+
+    /**
+     * Normalizes spaces around punctuation outside of string/double-quoted literals.
+     *
+     * <p>Goal: stable cache keys despite cosmetic formatting differences.
+     */
+    static String normalizePunctuationSpacing(String sql) {
+        // Contract:
+        // - Never touch content inside '...' or "...".
+        // - For a small set of punctuation tokens, remove surrounding spaces and re-insert canonical spacing.
+        StringBuilder sb = new StringBuilder(sql.length());
+        boolean inSingle = false;
+        boolean inDouble = false;
+
+        for (int i = 0; i < sql.length(); i++) {
+            char c = sql.charAt(i);
+            char n = (i + 1) < sql.length() ? sql.charAt(i + 1) : '\0';
+
+            if (!inDouble && c == '\'') {
+                if (inSingle && n == '\'') {
+                    sb.append("''");
+                    i++;
+                    continue;
+                }
+                inSingle = !inSingle;
+                sb.append(c);
+                continue;
+            }
+            if (!inSingle && c == '"') {
+                inDouble = !inDouble;
+                sb.append(c);
+                continue;
+            }
+
+            if (inSingle || inDouble) {
+                sb.append(c);
+                continue;
+            }
+
+            // Canonicalize common delimiters.
+            if (c == ',' || c == '(') {
+                // remove any space before
+                while (sb.length() > 0 && sb.charAt(sb.length() - 1) == ' ') {
+                    sb.setLength(sb.length() - 1);
+                }
+                sb.append(c);
+                // remove any space(s) right after in input
+                while ((i + 1) < sql.length() && sql.charAt(i + 1) == ' ') {
+                    i++;
+                }
+                continue;
+            }
+            if (c == ')') {
+                while (sb.length() > 0 && sb.charAt(sb.length() - 1) == ' ') {
+                    sb.setLength(sb.length() - 1);
+                }
+                sb.append(c);
+                continue;
+            }
+            if (c == '=') {
+                // ensure exactly one space left and right
+                while (sb.length() > 0 && sb.charAt(sb.length() - 1) == ' ') {
+                    sb.setLength(sb.length() - 1);
+                }
+                if (sb.length() > 0) sb.append(' ');
+                sb.append('=');
+                // skip spaces after '='
+                int j = i + 1;
+                while (j < sql.length() && sql.charAt(j) == ' ') j++;
+                if (j < sql.length()) sb.append(' ');
+                i = j - 1;
+                continue;
+            }
+
+            sb.append(c);
+        }
+
         return sb.toString();
     }
 

@@ -12,5 +12,11 @@ class SqlNormalizerTest {
         String norm = SqlNormalizer.normalizeForKey(sql);
         assertThat(norm).isEqualTo("SELECT 1 FROM T WHERE C = 'MiXeD'");
     }
-}
 
+    @Test
+    void normalizesSpacingAroundCommasParensAndEqualsOutsideLiterals() {
+        String sql = "select  (  a  ,  b )  from t where x   =   1 and y='a = b'";
+        String norm = SqlNormalizer.normalizeForKey(sql);
+        assertThat(norm).isEqualTo("SELECT(A,B) FROM T WHERE X = 1 AND Y = 'a = b'");
+    }
+}

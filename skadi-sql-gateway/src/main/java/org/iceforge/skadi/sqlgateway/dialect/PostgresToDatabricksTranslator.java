@@ -3,6 +3,7 @@ package org.iceforge.skadi.sqlgateway.dialect;
 import org.iceforge.skadi.sqlgateway.executor.SqlParam;
 
 import java.util.List;
+import java.util.Locale;
 
 final class PostgresToDatabricksTranslator implements SqlTranslator {
 
@@ -95,8 +96,13 @@ final class PostgresToDatabricksTranslator implements SqlTranslator {
     }
 
     private static String normalizeLimitOffset(String sql) {
-        // MVP: don't attempt deep parsing. Canonicalize MySQL-style OFFSET .. LIMIT is handled in MySQL translator.
-        return sql;
+        // Keep semantics, just canonicalize some common whitespace/casing around LIMIT/OFFSET.
+        // We intentionally avoid deep parsing.
+        if (sql == null) return "";
+        String s = sql;
+        // Canonicalize LIMIT/OFFSET keywords outside literals/comments by reusing normalizer uppercasing
+        // and whitespace collapsing.
+        return SqlNormalizer.collapseWhitespace(s);
     }
 
     private static String rewritePgCasts(String sql, SqlDialectBridgeOptions opts) {
@@ -174,7 +180,7 @@ final class PostgresToDatabricksTranslator implements SqlTranslator {
                 int typeStart = j;
                 while (j < sql.length()) {
                     char tc = sql.charAt(j);
-                    if (Character.isLetterOrDigit(tc) || tc == '_' ) {
+                    if (Character.isLetterOrDigit(tc) || tc == '_') {
                         j++;
                         continue;
                     }
@@ -199,15 +205,28 @@ final class PostgresToDatabricksTranslator implements SqlTranslator {
     }
 
     private static int findCastLhsStart(StringBuilder out) {
-        // Heuristic: find start at previous whitespace/comma/paren at same nesting.
+        // Heuristic: walk backwards to find the start of the expression being cast.
+        // If the expression ends with ')', include the entire parenthesized expression.
         int depth = 0;
         for (int i = out.length() - 1; i >= 0; i--) {
             char c = out.charAt(i);
-            if (c == ')') depth++;
-            else if (c == '(') {
-                if (depth == 0) return i;
-                depth--;
+
+            if (c == ')') {
+                depth++;
+                continue;
             }
+            if (c == '(') {
+                if (depth == 0) {
+                    return i;
+                }
+                depth--;
+                if (depth == 0) {
+                    // include this '(' as part of expression
+                    return i;
+                }
+                continue;
+            }
+
             if (depth == 0 && (Character.isWhitespace(c) || c == ',')) {
                 return i + 1;
             }
@@ -217,10 +236,11 @@ final class PostgresToDatabricksTranslator implements SqlTranslator {
 
     private static String mapType(String type, SqlDialectBridgeOptions opts) {
         if (!opts.mapCommonTypes() || type == null) return type;
-        String lower = type.toLowerCase();
+        String lower = type.toLowerCase(Locale.ROOT);
         return switch (lower) {
             case "text", "varchar", "bpchar", "char" -> "string";
-            case "timestamptz" -> "timestamp";
+            case "timestamp", "timestamptz" -> "timestamp";
+            case "date" -> "date";
             case "bytea" -> "binary";
             default -> type;
         };
