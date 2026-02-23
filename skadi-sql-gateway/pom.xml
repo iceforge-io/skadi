@@ -113,6 +113,14 @@
       <scope>test</scope>
     </dependency>
 
+    <!-- In-memory JDBC for tests (pgwire/cache) -->
+    <dependency>
+      <groupId>com.h2database</groupId>
+      <artifactId>h2</artifactId>
+      <version>2.3.232</version>
+      <scope>test</scope>
+    </dependency>
+
     <!-- Connection pooling for JDBC executors -->
     <dependency>
       <groupId>com.zaxxer</groupId>

@@ -373,6 +373,46 @@ final class PgWireSession implements Runnable {
     }
 
     private void streamJdbcQuery(DataOutputStream out, SqlExecutorProvider executorProvider, String sql) throws Exception {
+        String trimmed = sql == null ? "" : sql.trim();
+
+        PgWireRowSetCache rowSetCache = PgWireSessionRowSetCacheBridge.getCache();
+        Duration rowSetTtl = PgWireSessionRowSetCacheBridge.getTtl();
+
+        boolean cacheEligible = rowSetCache != null && rowSetTtl != null && !rowSetTtl.isZero() && !rowSetTtl.isNegative()
+                && isDeterministicForCache(trimmed);
+        String cacheKey;
+        if (cacheEligible) {
+            String userScope = socket.getRemoteSocketAddress() == null ? "" : socket.getRemoteSocketAddress().toString();
+            cacheKey = org.iceforge.skadi.sqlgateway.cache.QueryResultCacheKey.cacheId(
+                    userScope,
+                    org.iceforge.skadi.sqlgateway.dialect.SqlNormalizerFacade.normalizeForKey(trimmed),
+                    List.of() // pgwire simple-query has no bound params yet
+            );
+
+            var hit = rowSetCache.get(cacheKey);
+            if (hit.isPresent()) {
+                if (log.isDebugEnabled()) {
+                    log.debug("pgwire cache_local=true cache_hit=true key={}", cacheKey);
+                }
+                PgWireRowSetCache.RowSet rs = hit.get();
+                writeRowDescription(out, rs.columns());
+                for (String[] row : rs.rows()) {
+                    PgRowWriter.writeDataRow(out, row);
+                }
+                writeCommandComplete(out, rs.commandTag());
+                return;
+            }
+
+            if (log.isDebugEnabled()) {
+                log.debug("pgwire cache_local=true cache_hit=false key={}", cacheKey);
+            }
+        } else {
+            cacheKey = null;
+            if (log.isDebugEnabled() && rowSetCache != null) {
+                log.debug("pgwire cache_local=true cache_hit=false eligible=false");
+            }
+        }
+
         Integer fetchSize = props.fetchSize();
         Integer maxRows = props.maxRows();
 
@@ -395,16 +435,29 @@ final class PgWireSession implements Runnable {
 
             boolean hasResult = st.execute(sql);
             if (!hasResult) {
+                // CommandComplete tag for non-select statements is driver-specific; keep OK.
                 writeCommandComplete(out, "OK");
                 return;
             }
 
             try (ResultSet rs = st.getResultSet()) {
                 ResultSetMetaData md = rs.getMetaData();
+
+                // Capture columns for cache.
+                String[] columns = new String[md.getColumnCount()];
+                for (int i = 1; i <= md.getColumnCount(); i++) {
+                    String label = md.getColumnLabel(i);
+                    columns[i - 1] = (label == null || label.isBlank()) ? ("col_" + i) : label;
+                }
+
                 writeRowDescription(out, md);
 
                 final int colCount = md.getColumnCount();
                 long rows = 0;
+
+                // Only materialize rows if we intend to cache.
+                final boolean captureRows = cacheEligible && cacheKey != null;
+                final java.util.ArrayList<String[]> captured = captureRows ? new java.util.ArrayList<>() : null;
 
                 // Chunking: flush every N rows to avoid buffering huge payloads in memory.
                 final int flushEvery = 256;
@@ -415,22 +468,42 @@ final class PgWireSession implements Runnable {
                         if (v == null) {
                             row[i - 1] = null;
                         } else {
-                            // Text format: let driver/JVM format; clients parse based on OID.
                             row[i - 1] = v.toString();
                         }
                     }
 
                     PgRowWriter.writeDataRow(out, row);
-                    rows++;
+                    if (captureRows) {
+                        captured.add(row);
+                    }
 
+                    rows++;
                     if (rows % flushEvery == 0) {
                         out.flush();
                     }
                 }
 
-                writeCommandComplete(out, "SELECT " + rows);
+                String commandTag = "SELECT " + rows;
+                writeCommandComplete(out, commandTag);
+
+                if (captureRows) {
+                    rowSetCache.put(cacheKey, columns, captured, commandTag, rowSetTtl);
+                }
             }
         }
+    }
+
+    private static boolean isDeterministicForCache(String sql) {
+        if (sql == null) return false;
+        String s = sql.trim().toLowerCase(Locale.ROOT);
+        if (!(s.startsWith("select") || s.startsWith("with") || s.startsWith("values"))) return false;
+        // POC blacklist
+        return !(s.contains("current_timestamp")
+                || s.contains("current_date")
+                || s.contains("now()")
+                || s.contains("rand(")
+                || s.contains("random(")
+                || s.contains("uuid"));
     }
 
     private boolean requiresPassword() {

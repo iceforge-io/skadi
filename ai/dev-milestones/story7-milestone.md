@@ -1,0 +1,14 @@
+## STORY A7 status: Done (POC scope)
+- What’s implemented and verified:
+- Metadata cache: already present (MetadataCache) ✅
+- Query-result cache (deterministic exact-match POC):
+    - pgwire JDBC results cached in-memory (PgWireRowSetCache)
+    - cache lookup + replay on hit
+    - cache populate on miss with TTL ✅
+- Cache key includes:
+    - normalized SQL ✅
+    - user scope ✅ (currently remote socket address string)
+    - parameter values ✅/⚠️ (key supports them; pgwire path still uses empty list for now because binds aren’t wired into JDBC yet)
+- TTL config: wired via skadi.sql-gateway.cache.* ✅
+- Warm-cache demonstration: unit/integration-hybrid tests show second lookup is a hit + TTL expiry ✅
+- Hit/miss logging hooks: cache_local + cache_hit debug lines ✅ (S3 not implemented yet, so no cache_s3 beyond “future”)
