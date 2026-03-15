@@ -11,4 +11,5 @@
     - parameter values ✅/⚠️ (key supports them; pgwire path still uses empty list for now because binds aren’t wired into JDBC yet)
 - TTL config: wired via skadi.sql-gateway.cache.* ✅
 - Warm-cache demonstration: unit/integration-hybrid tests show second lookup is a hit + TTL expiry ✅
-- Hit/miss logging hooks: cache_local + cache_hit debug lines ✅ (S3 not implemented yet, so no cache_s3 beyond “future”)
+- Hit/miss logging hooks: cache_
+- local + cache_hit debug lines ✅ (S3 not implemented yet, so no cache_s3 beyond “future”)
