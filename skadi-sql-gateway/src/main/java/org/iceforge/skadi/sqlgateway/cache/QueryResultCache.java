@@ -1,5 +1,6 @@
 package org.iceforge.skadi.sqlgateway.cache;
 
+import java.io.ByteArrayOutputStream;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -7,14 +8,22 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
-/** In-process TTL cache for real query result rows. */
+/** In-process TTL cache for real query result rows and Arrow byte payloads. */
 public final class QueryResultCache {
 
     public record ColumnMeta(String name, int pgOid) {}
 
     private record Entry(List<ColumnMeta> columns, List<String[]> rows, Instant expiresAt) {}
 
+    /** Cached Arrow-serialized bytes for pgwire streaming. */
+    public record ArrowEntry(byte[] arrowBytes) {
+        public int sizeBytes() { return arrowBytes.length; }
+    }
+
+    private record ByteEntry(byte[] bytes, Instant expiresAt) {}
+
     private final ConcurrentHashMap<String, Entry> map = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, ByteEntry> arrowMap = new ConcurrentHashMap<>();
     private final Clock clock;
     private final int maxEntries;
 
@@ -45,5 +54,29 @@ public final class QueryResultCache {
 
     public int size() {
         return map.size();
+    }
+
+    // --- Arrow byte cache ---
+
+    public static ByteArrayOutputStream newBuffer() {
+        return new ByteArrayOutputStream();
+    }
+
+    public void putArrow(String key, byte[] bytes, Duration ttl) {
+        if (key == null || bytes == null) return;
+        if (arrowMap.size() >= maxEntries) return;
+        Duration t = (ttl == null || ttl.isNegative() || ttl.isZero()) ? Duration.ofMinutes(5) : ttl;
+        arrowMap.put(key, new ByteEntry(bytes, clock.instant().plus(t)));
+    }
+
+    public Optional<ArrowEntry> getArrow(String key) {
+        if (key == null) return Optional.empty();
+        ByteEntry e = arrowMap.get(key);
+        if (e == null) return Optional.empty();
+        if (clock.instant().isAfter(e.expiresAt())) {
+            arrowMap.remove(key, e);
+            return Optional.empty();
+        }
+        return Optional.of(new ArrowEntry(e.bytes()));
     }
 }

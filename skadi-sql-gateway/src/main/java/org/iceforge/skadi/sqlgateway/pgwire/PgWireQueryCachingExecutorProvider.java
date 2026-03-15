@@ -83,10 +83,10 @@ public final class PgWireQueryCachingExecutorProvider {
 
         String cacheId = QueryResultCacheKey.cacheId(userScope, bridged.normalizedSqlForKey(), bridged.normalizedParamsForKey());
 
-        Optional<QueryResultCache.Entry> hit = cache.get(cacheId);
+        Optional<QueryResultCache.ArrowEntry> hit = cache.getArrow(cacheId);
         if (hit.isPresent()) {
             metrics.recordHit();
-            QueryResultCache.Entry e = hit.get();
+            QueryResultCache.ArrowEntry e = hit.get();
             new ByteArrayInputStream(e.arrowBytes()).transferTo(out);
             log.info("CACHE_HIT cache_local=true cache_s3=false cacheId={} sizeBytes={}", cacheId, e.sizeBytes());
             return "cache_local";
@@ -105,7 +105,7 @@ public final class PgWireQueryCachingExecutorProvider {
         }
 
         byte[] bytes = buffer.toByteArray();
-        cache.put(cacheId, bytes, ttl);
+        cache.putArrow(cacheId, bytes, ttl);
         new ByteArrayInputStream(bytes).transferTo(out);
 
         log.info("CACHE_MISS cache_local=false cache_s3=false cacheId={} sizeBytes={} durationMs={} normalizedSql='{}'",

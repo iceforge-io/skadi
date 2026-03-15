@@ -21,7 +21,7 @@ public class QueryResultCacheConfig {
     @Bean
     @ConditionalOnProperty(prefix = "skadi.sql-gateway.cache", name = "enabled", havingValue = "true")
     public QueryResultCache queryResultCache() {
-        return new QueryResultCache(Clock.systemUTC());
+        return new QueryResultCache(Clock.systemUTC(), 500);
     }
 
     @Bean
