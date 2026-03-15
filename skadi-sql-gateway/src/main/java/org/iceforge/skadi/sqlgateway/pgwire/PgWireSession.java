@@ -1,11 +1,20 @@
 package org.iceforge.skadi.sqlgateway.pgwire;
 
+import org.iceforge.skadi.sqlgateway.auth.AuthProvider;
+import org.iceforge.skadi.sqlgateway.auth.AuthProviderFactory;
+import org.iceforge.skadi.sqlgateway.auth.PrincipalPolicy;
+import org.iceforge.skadi.sqlgateway.auth.PrincipalPolicyRegistry;
+import org.iceforge.skadi.sqlgateway.cache.QueryCacheKey;
+import org.iceforge.skadi.sqlgateway.cache.QueryCacheMetrics;
+import org.iceforge.skadi.sqlgateway.cache.QueryResultCache;
 import org.iceforge.skadi.sqlgateway.config.SqlGatewayProperties;
 import org.iceforge.skadi.sqlgateway.metadata.MetadataCache;
 import org.iceforge.skadi.sqlgateway.metadata.MetadataQueryRouter;
 import org.iceforge.skadi.sqlgateway.metadata.MetadataRowSet;
+import org.iceforge.skadi.sqlgateway.trace.TableauTraceLogger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
@@ -23,21 +32,35 @@ import java.sql.ResultSetMetaData;
 import java.sql.Statement;
 import java.time.Clock;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 
 final class PgWireSession implements Runnable {
     private static final Logger log = LoggerFactory.getLogger(PgWireSession.class);
 
     private static final MetadataCache METADATA_CACHE = new MetadataCache(Clock.systemUTC());
+    private static final QueryResultCache QUERY_CACHE = new QueryResultCache(Clock.systemUTC(), 500);
+    private static final QueryCacheMetrics CACHE_METRICS = new QueryCacheMetrics();
 
     private final Socket socket;
     private final SqlGatewayProperties.PgWire props;
+    private final SqlGatewayProperties.Cache cacheProps;
+    private final SqlGatewayProperties.Trace traceProps;
+    private final AuthProvider authProvider;
+    private final PrincipalPolicyRegistry policyRegistry;
+    private final String sessionId;
+    private final TableauTraceLogger tracer;
     private final MetadataQueryRouter metadata;
+
+    // Authenticated username and resolved policy, captured at startup.
+    private String user = "";
+    private PrincipalPolicy policy = PrincipalPolicy.UNRESTRICTED;
 
     // Minimal extended-query state.
     private String lastPreparedSql;
@@ -45,9 +68,18 @@ final class PgWireSession implements Runnable {
     private String lastPortalName;
     private boolean portalHasResult;
 
-    PgWireSession(Socket socket, SqlGatewayProperties.PgWire props) {
+    PgWireSession(Socket socket, SqlGatewayProperties.PgWire props, SqlGatewayProperties.Cache cacheProps,
+                  SqlGatewayProperties.Trace traceProps) {
         this.socket = Objects.requireNonNull(socket);
         this.props = Objects.requireNonNull(props);
+        this.cacheProps = cacheProps; // nullable
+        this.traceProps = traceProps; // nullable
+        this.authProvider = AuthProviderFactory.create(props.auth());
+        this.policyRegistry = new PrincipalPolicyRegistry(props.auth());
+        this.sessionId = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+        boolean te = traceProps != null && traceProps.isEnabled();
+        String tdPath = (traceProps != null) ? traceProps.testdataPath() : null;
+        this.tracer = new TableauTraceLogger(sessionId, te, tdPath);
 
         // Metadata facade defaults. (We can plumb in SqlGatewayProperties.Metadata once PgWireServer passes it.)
         Duration ttl = Duration.ofMinutes(2);
@@ -59,6 +91,7 @@ final class PgWireSession implements Runnable {
 
     @Override
     public void run() {
+        MDC.put("session_id", sessionId);
         try (socket;
              DataInputStream in = new DataInputStream(new BufferedInputStream(socket.getInputStream()));
              DataOutputStream out = new DataOutputStream(new BufferedOutputStream(socket.getOutputStream()))) {
@@ -88,9 +121,9 @@ final class PgWireSession implements Runnable {
             }
 
             Map<String, String> params = readStartupParams(buf);
-            String user = params.getOrDefault("user", "");
+            this.user = params.getOrDefault("user", "");
 
-            if (requiresPassword()) {
+            if (authProvider.requiresPassword()) {
                 writeAuthCleartext(out);
                 out.flush();
 
@@ -106,13 +139,20 @@ final class PgWireSession implements Runnable {
                 byte[] pwdBytes = in.readNBytes(mlen - 4);
                 String password = cstring(pwdBytes, 0);
 
-                if (!isPasswordValid(user, password)) {
+                if (!authProvider.authenticate(user, password)) {
                     writeError(out, "28P01", "password authentication failed");
                     writeReady(out);
                     out.flush();
                     return;
                 }
             }
+
+            // Resolve authorization policy for this principal.
+            this.policy = policyRegistry.policyFor(user);
+
+            String client = deriveClient(params);
+            MDC.put("client", client);
+            tracer.sessionStart(params, client);
 
             writeAuthOk(out);
             writeParameterStatus(out, "server_version", "15.0");
@@ -158,6 +198,7 @@ final class PgWireSession implements Runnable {
                     this.lastStatementName = readCString(mb);
                     String sql = readCString(mb);
                     this.lastPreparedSql = sql;
+                    tracer.statementParsed(sql);
                     writeParseComplete(out);
                     out.flush();
                     continue;
@@ -251,6 +292,9 @@ final class PgWireSession implements Runnable {
 
         } catch (Exception e) {
             log.debug("pgwire session ended with error: {}", e.toString());
+        } finally {
+            tracer.sessionEnd();
+            MDC.clear();
         }
     }
 
@@ -353,9 +397,10 @@ final class PgWireSession implements Runnable {
         SqlExecutorProvider executorProvider = SqlExecutorProviderHolder.get();
         if (executorProvider != null) {
             try {
-                streamJdbcQuery(out, executorProvider, s);
+                streamJdbcQueryWithCaching(out, executorProvider, s);
                 return;
             } catch (Exception e) {
+                tracer.queryError(s, "XX000", e.getMessage());
                 writeError(out, "XX000", "JDBC execution failed: " + e.getMessage());
                 return;
             }
@@ -364,60 +409,67 @@ final class PgWireSession implements Runnable {
         writeError(out, "0A000", "Query not supported yet (MVP): " + s);
     }
 
-    private static void writeRowSet(DataOutputStream out, MetadataRowSet rs) throws IOException {
+    private void writeRowSet(DataOutputStream out, MetadataRowSet rs) throws IOException {
+        List<List<String>> rows = applyPolicyFilter(rs);
         writeRowDescription(out, rs.columns().toArray(new String[0]));
-        for (List<String> row : rs.rows()) {
+        for (List<String> row : rows) {
             PgRowWriter.writeDataRow(out, row.toArray(new String[0]));
         }
-        writeCommandComplete(out, rs.commandTag());
+        writeCommandComplete(out, "SELECT " + rows.size());
     }
 
-    private void streamJdbcQuery(DataOutputStream out, SqlExecutorProvider executorProvider, String sql) throws Exception {
-        String trimmed = sql == null ? "" : sql.trim();
-
-        PgWireRowSetCache rowSetCache = PgWireSessionRowSetCacheBridge.getCache();
-        Duration rowSetTtl = PgWireSessionRowSetCacheBridge.getTtl();
-
-        boolean cacheEligible = rowSetCache != null && rowSetTtl != null && !rowSetTtl.isZero() && !rowSetTtl.isNegative()
-                && isDeterministicForCache(trimmed);
-        String cacheKey;
-        if (cacheEligible) {
-            String userScope = socket.getRemoteSocketAddress() == null ? "" : socket.getRemoteSocketAddress().toString();
-            cacheKey = org.iceforge.skadi.sqlgateway.cache.QueryResultCacheKey.cacheId(
-                    userScope,
-                    org.iceforge.skadi.sqlgateway.dialect.SqlNormalizerFacade.normalizeForKey(trimmed),
-                    List.of() // pgwire simple-query has no bound params yet
-            );
-
-            var hit = rowSetCache.get(cacheKey);
-            if (hit.isPresent()) {
-                if (log.isDebugEnabled()) {
-                    log.debug("pgwire cache_local=true cache_hit=true key={}", cacheKey);
-                }
-                PgWireRowSetCache.RowSet rs = hit.get();
-                writeRowDescription(out, rs.columns());
-                for (String[] row : rs.rows()) {
-                    PgRowWriter.writeDataRow(out, row);
-                }
-                writeCommandComplete(out, rs.commandTag());
-                return;
-            }
-
-            if (log.isDebugEnabled()) {
-                log.debug("pgwire cache_local=true cache_hit=false key={}", cacheKey);
-            }
-        } else {
-            cacheKey = null;
-            if (log.isDebugEnabled() && rowSetCache != null) {
-                log.debug("pgwire cache_local=true cache_hit=false eligible=false");
+    /**
+     * Filters metadata rowset rows to those permitted by the session's principal policy.
+     * Looks for a column named "table_schema" or "schema_name" and removes rows whose
+     * schema value is not in the allowed set.
+     */
+    private List<List<String>> applyPolicyFilter(MetadataRowSet rs) {
+        if (policy.isUnrestricted()) return rs.rows();
+        List<String> cols = rs.columns();
+        int schemaIdx = -1;
+        for (int i = 0; i < cols.size(); i++) {
+            String c = cols.get(i).toLowerCase(Locale.ROOT);
+            if (c.equals("table_schema") || c.equals("schema_name")) {
+                schemaIdx = i;
+                break;
             }
         }
+        if (schemaIdx < 0) return rs.rows(); // no schema column — can't filter
+        final int idx = schemaIdx;
+        return rs.rows().stream()
+                .filter(row -> row.size() > idx && policy.permitsSchema(row.get(idx)))
+                .toList();
+    }
+
+    private void streamJdbcQueryWithCaching(DataOutputStream out, SqlExecutorProvider executorProvider, String sql) throws Exception {
+        boolean cacheEnabled = cacheProps != null && cacheProps.isEnabled() && guessHasResult(sql);
+
+        // Cache lookup (only for SELECT-like queries).
+        if (cacheEnabled) {
+            String key = QueryCacheKey.of(sql, user);
+            Optional<QueryResultCache.CacheEntry> hit = QUERY_CACHE.get(key);
+            if (hit.isPresent()) {
+                long t0 = System.currentTimeMillis();
+                QueryResultCache.CacheEntry entry = hit.get();
+                CACHE_METRICS.recordHit();
+                replayFromCache(out, entry);
+                tracer.queryEnd(sql, entry.rows().size(), System.currentTimeMillis() - t0, "HIT");
+                return;
+            }
+            CACHE_METRICS.recordMiss();
+        }
+        tracer.queryStart(sql);
 
         Integer fetchSize = props.fetchSize();
         Integer maxRows = props.maxRows();
+        long t0 = System.currentTimeMillis();
 
         try (Connection conn = executorProvider.getConnection();
              Statement st = conn.createStatement()) {
+
+            // Propagate Skadi identity to Databricks query history.
+            try { conn.setClientInfo("ApplicationName", "skadi-sql-gateway"); } catch (Exception ignored) {}
+            try { conn.setClientInfo("User", user); } catch (Exception ignored) {}
 
             if (fetchSize != null && fetchSize > 0) {
                 try {
@@ -435,89 +487,109 @@ final class PgWireSession implements Runnable {
 
             boolean hasResult = st.execute(sql);
             if (!hasResult) {
-                // CommandComplete tag for non-select statements is driver-specific; keep OK.
                 writeCommandComplete(out, "OK");
+                tracer.queryEnd(sql, 0, System.currentTimeMillis() - t0, "MISS");
                 return;
             }
 
             try (ResultSet rs = st.getResultSet()) {
                 ResultSetMetaData md = rs.getMetaData();
-
-                // Capture columns for cache.
-                String[] columns = new String[md.getColumnCount()];
-                for (int i = 1; i <= md.getColumnCount(); i++) {
-                    String label = md.getColumnLabel(i);
-                    columns[i - 1] = (label == null || label.isBlank()) ? ("col_" + i) : label;
-                }
-
                 writeRowDescription(out, md);
 
                 final int colCount = md.getColumnCount();
+
+                // Buffer columns for caching.
+                List<QueryResultCache.ColumnMeta> colMetas = null;
+                List<String[]> bufferedRows = null;
+                if (cacheEnabled) {
+                    colMetas = new ArrayList<>(colCount);
+                    for (int i = 1; i <= colCount; i++) {
+                        String colName = md.getColumnLabel(i);
+                        colMetas.add(new QueryResultCache.ColumnMeta(
+                                colName == null ? ("col_" + i) : colName,
+                                JdbcToPgTypeMapper.toPgOid(md, i)));
+                    }
+                    bufferedRows = new ArrayList<>();
+                }
+
                 long rows = 0;
-
-                // Only materialize rows if we intend to cache.
-                final boolean captureRows = cacheEligible && cacheKey != null;
-                final java.util.ArrayList<String[]> captured = captureRows ? new java.util.ArrayList<>() : null;
-
-                // Chunking: flush every N rows to avoid buffering huge payloads in memory.
                 final int flushEvery = 256;
                 while (rs.next()) {
                     String[] row = new String[colCount];
                     for (int i = 1; i <= colCount; i++) {
                         Object v = rs.getObject(i);
-                        if (v == null) {
-                            row[i - 1] = null;
-                        } else {
-                            row[i - 1] = v.toString();
-                        }
+                        row[i - 1] = (v == null) ? null : v.toString();
                     }
 
                     PgRowWriter.writeDataRow(out, row);
-                    if (captureRows) {
-                        captured.add(row);
+                    rows++;
+
+                    if (bufferedRows != null) {
+                        bufferedRows.add(row);
                     }
 
-                    rows++;
                     if (rows % flushEvery == 0) {
                         out.flush();
                     }
                 }
 
-                String commandTag = "SELECT " + rows;
-                writeCommandComplete(out, commandTag);
+                writeCommandComplete(out, "SELECT " + rows);
 
-                if (captureRows) {
-                    rowSetCache.put(cacheKey, columns, captured, commandTag, rowSetTtl);
+                // Store in cache after successful execution.
+                if (cacheEnabled && bufferedRows != null) {
+                    String key = QueryCacheKey.of(sql, user);
+                    QUERY_CACHE.put(key, colMetas, bufferedRows, cacheProps.effectiveTtl());
                 }
+                tracer.queryEnd(sql, rows, System.currentTimeMillis() - t0, cacheEnabled ? "MISS" : "SKIP");
             }
         }
     }
 
-    private static boolean isDeterministicForCache(String sql) {
-        if (sql == null) return false;
-        String s = sql.trim().toLowerCase(Locale.ROOT);
-        if (!(s.startsWith("select") || s.startsWith("with") || s.startsWith("values"))) return false;
-        // POC blacklist
-        return !(s.contains("current_timestamp")
-                || s.contains("current_date")
-                || s.contains("now()")
-                || s.contains("rand(")
-                || s.contains("random(")
-                || s.contains("uuid"));
+    private static void replayFromCache(DataOutputStream out, QueryResultCache.CacheEntry entry) throws IOException {
+        // Write RowDescription from cached column metadata.
+        List<QueryResultCache.ColumnMeta> cols = entry.columns();
+        int fieldCount = cols.size();
+        ByteBuffer b = ByteBuffer.allocate(4096).order(ByteOrder.BIG_ENDIAN);
+        b.putShort((short) fieldCount);
+        for (QueryResultCache.ColumnMeta col : cols) {
+            putCString(b, col.name());
+            b.putInt(0);          // table oid
+            b.putShort((short) 0); // attr #
+            b.putInt(col.pgOid());
+            b.putShort((short) -1); // size
+            b.putInt(0);           // type modifier
+            b.putShort((short) 0); // format code 0=text
+            if (b.remaining() < 256) {
+                ByteBuffer nb = ByteBuffer.allocate(b.capacity() * 2).order(ByteOrder.BIG_ENDIAN);
+                b.flip();
+                nb.put(b);
+                b = nb;
+            }
+        }
+        int msgLen = b.position();
+        out.writeByte('T');
+        out.writeInt(4 + msgLen);
+        out.write(b.array(), 0, msgLen);
+
+        // Write DataRows.
+        long rows = 0;
+        final int flushEvery = 256;
+        for (String[] row : entry.rows()) {
+            PgRowWriter.writeDataRow(out, row);
+            rows++;
+            if (rows % flushEvery == 0) {
+                out.flush();
+            }
+        }
+
+        writeCommandComplete(out, "SELECT " + rows);
     }
 
-    private boolean requiresPassword() {
-        SqlGatewayProperties.PgWire.Auth auth = props.auth();
-        if (auth == null) return false;
-        String mode = auth.mode();
-        return mode != null && mode.equalsIgnoreCase("password");
-    }
-
-    private boolean isPasswordValid(String user, String password) {
-        SqlGatewayProperties.PgWire.Auth auth = props.auth();
-        if (auth == null || auth.users() == null) return false;
-        String expected = auth.users().get(user);
-        return expected != null && expected.equals(password);
+    private static String deriveClient(Map<String, String> params) {
+        if (params == null) return "unknown";
+        String appName = params.getOrDefault("application_name", "");
+        if (appName.toLowerCase(Locale.ROOT).contains("tableau")) return "tableau";
+        return appName.isBlank() ? "unknown" : appName;
     }
 
     private static Map<String, String> readStartupParams(ByteBuffer buf) {

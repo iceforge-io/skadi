@@ -28,6 +28,8 @@ public class PgWireServer implements AutoCloseable {
     private static final Logger log = LoggerFactory.getLogger(PgWireServer.class);
 
     private final SqlGatewayProperties.PgWire props;
+    private final SqlGatewayProperties.Cache cacheProps;
+    private final SqlGatewayProperties.Trace traceProps;
     private final ExecutorService acceptor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "pgwire-acceptor");
         t.setDaemon(true);
@@ -43,8 +45,11 @@ public class PgWireServer implements AutoCloseable {
     private volatile ServerSocket serverSocket;
     private volatile int localPort;
 
-    public PgWireServer(SqlGatewayProperties.PgWire props) {
+    public PgWireServer(SqlGatewayProperties.PgWire props, SqlGatewayProperties.Cache cacheProps,
+                        SqlGatewayProperties.Trace traceProps) {
         this.props = Objects.requireNonNull(props, "props");
+        this.cacheProps = cacheProps; // nullable
+        this.traceProps = traceProps; // nullable
     }
 
     public void start() throws IOException {
@@ -66,7 +71,7 @@ public class PgWireServer implements AutoCloseable {
                     Socket s = ss.accept();
                     s.setTcpNoDelay(true);
                     s.setSoTimeout((int) Duration.ofMinutes(5).toMillis());
-                    sessions.submit(new PgWireSession(s, props));
+                    sessions.submit(new PgWireSession(s, props, cacheProps, traceProps));
                 } catch (java.net.SocketTimeoutException expected) {
                     // Normal when we set SO_TIMEOUT so we can check `running` regularly.
                 } catch (IOException e) {

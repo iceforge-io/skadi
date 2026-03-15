@@ -3,6 +3,7 @@ package org.iceforge.skadi.sqlgateway.config;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -15,7 +16,9 @@ public record SqlGatewayProperties(
         String advertisedHost,
         Integer advertisedPort,
         PgWire pgwire,
-        Metadata metadata
+        Metadata metadata,
+        Cache cache,
+        Trace trace
 ) {
 
     public record PgWire(
@@ -28,8 +31,11 @@ public record SqlGatewayProperties(
     ) {
         public record Auth(
                 String mode,
-                Map<String, String> users
+                String credentialStore,                      // "plaintext" (default) | "bcrypt"
+                Map<String, String> users,
+                Map<String, PolicyConfig> policies           // username → schema ACL
         ) {
+            public record PolicyConfig(List<String> allowedSchemas) {}
         }
     }
 
@@ -49,5 +55,38 @@ public record SqlGatewayProperties(
             String dbxCatalog,
             String dbxSchema
     ) {
+    }
+
+    /**
+     * Tableau trace mode configuration.
+     */
+    public record Trace(
+            boolean enabled,
+            String testdataPath
+    ) {
+        public boolean isEnabled() {
+            return enabled;
+        }
+    }
+
+    /**
+     * Query result cache configuration (POC: local in-memory only).
+     */
+    public record Cache(
+            boolean enabled,
+            Duration ttl,
+            Integer maxEntries
+    ) {
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public Duration effectiveTtl() {
+            return (ttl == null || ttl.isNegative() || ttl.isZero()) ? Duration.ofMinutes(5) : ttl;
+        }
+
+        public int effectiveMaxEntries() {
+            return (maxEntries == null || maxEntries <= 0) ? 500 : maxEntries;
+        }
     }
 }

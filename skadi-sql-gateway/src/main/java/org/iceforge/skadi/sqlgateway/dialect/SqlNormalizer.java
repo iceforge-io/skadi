@@ -2,7 +2,7 @@ package org.iceforge.skadi.sqlgateway.dialect;
 
 import java.util.Locale;
 
-final class SqlNormalizer {
+public final class SqlNormalizer {
     private SqlNormalizer() {
     }
 
@@ -18,7 +18,7 @@ final class SqlNormalizer {
      *   <li>Upper-case outside string literals (so casing differences don't split cache)</li>
      * </ul>
      */
-    static String normalizeForKey(String sql) {
+    public static String normalizeForKey(String sql) {
         if (sql == null) return "";
         String noComments = stripComments(sql);
         String collapsed = collapseWhitespace(noComments);
