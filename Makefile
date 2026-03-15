@@ -5,4 +5,4 @@ tarball:
 	  --exclude='*/target/*' \
 	  --exclude='*/node_modules' \
 	  --exclude='*.log' \
-	  -czf /mnt/c/Users/dkay2/Downloads/skadi.tar.gz .
+	  -cvzf /mnt/c/Users/dkay2/Downloads/skadi.tar.gz .
