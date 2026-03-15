@@ -374,3 +374,229 @@
 - [PROD] Optional: MySQL wire-protocol endpoint
 
 ---
+
+# Demo Runbook (A9)
+
+> **Status:** Lane A complete (A1–A9). This runbook covers local/dev setup.
+> For production deployment see Lane B stories (B1–B8).
+
+---
+
+## Prerequisites
+
+| Requirement | Notes |
+|---|---|
+| Java 21+ | `java -version` to verify |
+| Maven 3.9+ | Bundled `./mvnw` wrapper available |
+| Databricks workspace | SQL Warehouse (Serverless or Pro); HTTP path + PAT token |
+| Tableau Desktop | 2023.1+ recommended; use the built-in **PostgreSQL** connector |
+| `psql` (optional) | For smoke-testing the pgwire endpoint before opening Tableau |
+
+---
+
+## 1. Build
+
+```bash
+git clone git@github.com:iceforge-io/skadi.git
+cd skadi
+./mvnw clean package -pl skadi-sql-gateway -am -DskipTests
+```
+
+---
+
+## 2. Configure
+
+Edit `skadi-sql-gateway/src/main/resources/application.yml` (or pass as env overrides):
+
+```yaml
+skadi:
+  sql-gateway:
+    pgwire:
+      enabled: true
+      host: 0.0.0.0
+      port: 15432
+      auth:
+        mode: trust          # trust = any username accepted (dev only)
+
+    metadata:
+      enabled: true
+      pg-database: postgres  # "Database" field Tableau will show
+      dbx-catalog: main      # Databricks Unity Catalog name
+      dbx-schema: sales      # Databricks schema to expose
+
+    databricks:
+      enabled: true
+      host: <workspace>.azuredatabricks.net   # or .databricks.com
+      http-path: /sql/1.0/warehouses/<id>
+      token: dapi...
+      max-pool-size: 5
+      query-timeout: 5m
+
+    cache:
+      enabled: true
+      ttl: 5m
+      max-entries: 500
+
+    trace:
+      enabled: true
+      testdata-path: testdata/tableau-traces  # optional corpus capture
+```
+
+---
+
+## 3. Run
+
+```bash
+./mvnw -pl skadi-sql-gateway -am spring-boot:run
+```
+
+The gateway exposes two endpoints:
+- **pgwire** (PostgreSQL protocol): `0.0.0.0:15432`
+- **HTTP** (Spring Boot health/metrics): `http://localhost:8090/actuator/health`
+
+---
+
+## 4. Smoke-Test with psql
+
+```bash
+psql -h 127.0.0.1 -p 15432 -U demo postgres
+```
+
+Expected output:
+```
+psql (15.x)
+Type "help" for help.
+
+postgres=> SELECT 1;
+ ?column?
+----------
+ 1
+(1 row)
+
+postgres=> SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' LIMIT 5;
+ table_name
+------------
+ orders
+ ...
+```
+
+---
+
+## 5. Sample Schema Mapping (MXL Dataset)
+
+The metadata facade maps a Databricks Unity Catalog hierarchy to what Tableau sees through the Postgres connector:
+
+| Databricks | Skadi / Tableau |
+|---|---|
+| Catalog: `main` | Database: `postgres` (Tableau "Database" field) |
+| Schema: `sales` | Schema: `public` |
+| Table: `orders` | Table: `orders` |
+| Table: `customers` | Table: `customers` |
+
+**Sample queries Tableau will generate after connecting:**
+
+```sql
+-- Schema discovery
+SELECT table_name, table_type
+FROM information_schema.tables
+WHERE table_schema = 'public';
+
+-- Column discovery
+SELECT column_name, data_type, is_nullable
+FROM information_schema.columns
+WHERE table_schema = 'public' AND table_name = 'orders';
+
+-- Typical dashboard aggregate (after user builds a view)
+SELECT region, SUM(revenue) AS total_revenue
+FROM orders
+WHERE order_date >= '2024-01-01'
+GROUP BY region
+ORDER BY total_revenue DESC
+LIMIT 1000;
+```
+
+---
+
+## 6. Connect Tableau Desktop
+
+1. Open **Tableau Desktop**
+2. **Connect → To a Server → PostgreSQL**
+3. Fill in:
+   - **Server:** `localhost` (or the host running skadi-sql-gateway)
+   - **Port:** `15432`
+   - **Database:** `postgres`
+   - **Authentication:** Username and Password
+   - **Username:** `demo` (any value; ignored in trust mode)
+   - **Password:** *(leave blank or enter anything)*
+4. Click **Sign In**
+5. In the **Data Source** pane: select **Schema: public** → tables appear
+6. Drag a table to the canvas to build a worksheet
+
+> **Tableau Server / Bridge:** point at the hostname/IP of the machine running skadi-sql-gateway instead of `localhost`.
+
+---
+
+## 7. Reproducing Warm-Cache Improvements
+
+### Method
+
+1. Ensure `trace.enabled: true` and `testdata-path: testdata/tableau-traces` are set
+2. Connect Tableau and run a dashboard with at least one heavy aggregate query
+3. Refresh the dashboard a second time (same filters → identical normalized SQL)
+4. Compare log output:
+
+```
+# First run — cold cache (hits Databricks):
+event=query_end session_id=a3f1b2c4e5d6 fingerprint=8c3d1a2f rows=1000 latency_ms=3240 cache_local=MISS cache_s3=SKIP
+
+# Second run — warm cache (served by Skadi, no warehouse query):
+event=query_end session_id=a3f1b2c4e5d6 fingerprint=8c3d1a2f rows=1000 latency_ms=3 cache_local=HIT cache_s3=SKIP
+```
+
+5. Check **Databricks SQL History** (workspace UI → SQL → Query History) — the second run should produce **no new warehouse query entry**
+6. Corpus files at `testdata/tableau-traces/<session-id>.jsonl` contain per-query timing records for offline analysis:
+
+```json
+{"ts":"2026-03-14T10:00:01Z","session_id":"a3f1b2c4e5d6","fingerprint":"8c3d1a2f","sql":"SELECT REGION, SUM(REVENUE) AS TOTAL_REVENUE FROM ORDERS ...","rows":1000,"latency_ms":3240,"cache_local":"MISS"}
+{"ts":"2026-03-14T10:00:45Z","session_id":"b9e2c3f4a1d5","fingerprint":"8c3d1a2f","sql":"SELECT REGION, SUM(REVENUE) AS TOTAL_REVENUE FROM ORDERS ...","rows":1000,"latency_ms":3,"cache_local":"HIT"}
+```
+
+**Expected improvement:** cache HIT latency is typically <10 ms vs 1–30 s for a cold Databricks warehouse query.
+
+---
+
+## 8. Known Limitations (POC)
+
+| Area | Limitation |
+|---|---|
+| **Result encoding** | Text-only (no binary PG wire format). Types are correct but sent as strings; Tableau parses them client-side. |
+| **TLS** | No TLS termination — plaintext only. Do not use over untrusted networks. See B6 for production hardening. |
+| **Auth** | Trust mode (any username accepted) or cleartext password. No token/OAuth/mTLS. See B1. |
+| **Cache scope** | Local in-memory only. Restarts clear the cache. No S3/distributed tier yet. See B5 / Cache Layer epic. |
+| **Cache policy** | Exact-match on normalized SQL + username. Queries with different literal values (e.g. different date filters) are separate cache entries. |
+| **Metadata** | Synthetic `information_schema` facade. Schema/table/column lists are statically configured via `dbx-catalog`/`dbx-schema`; not dynamically fetched per-request. |
+| **Cancellation** | Databricks query cancellation is best-effort; no guaranteed end-to-end cancel propagation. See B2. |
+| **Row limits** | `max-rows` is advisory — set in JDBC `setMaxRows()`, not enforced at SQL level. |
+| **Timestamps** | Sent as text using Java `toString()`. UTC assumed. Timezone-aware columns pass through as-is. Test timezone edges before prod. |
+| **Concurrency** | No per-user concurrency caps. One active session consumes one JDBC connection from the pool. See B2. |
+| **Protocol completeness** | Extended query protocol is a minimal subset (Parse/Bind/Describe/Execute/Sync). Edge cases may appear with non-Tableau JDBC clients. See B3. |
+
+---
+
+## 9. Known Tableau Oddities
+
+Patterns observed during A1–A8 implementation that required special handling:
+
+| Behaviour | What Skadi does | Notes |
+|---|---|---|
+| **SSLRequest on every connect** | Returns `N` (no TLS); Tableau retries with plaintext | Normal Tableau behaviour — not an error |
+| **`SET application_name = 'Tableau x.y'`** | Accepted as no-op; value captured for `client=tableau` detection in trace logs | Tableau sends this immediately after auth |
+| **`SHOW standard_conforming_strings`** | Returns `on` | JDBC bootstrap; must respond or driver hangs |
+| **`SELECT current_setting('...')`** | Returns empty string | Driver introspection call |
+| **`SELECT version()`** | Returns `"Skadi SQL Gateway (pgwire)"` | Tableau accepts any non-empty string |
+| **Extended query for all data queries** | Parse → Bind → Describe → Execute → Sync | Tableau never uses Simple Query (`Q`) for data; only for metadata probes |
+| **`information_schema` storms on connect** | Absorbed by metadata cache (TTL 2m) | Can be 20–50 queries on first connect; cache prevents repeated Databricks roundtrips |
+| **`RESET` commands on disconnect** | Accepted as no-op | Tableau tears down cleanly |
+| **`SELECT 1` keepalives** | Handled inline; never reaches Databricks | Tableau uses this to test connection liveness |
+| **Prepared statement per dashboard sheet** | One Parse per query per sheet | A 5-sheet dashboard issues 5 Parse messages before any Execute |
+| **Describe before Bind** | Skadi sends a generic `RowDescription` with `TEXT` OID | Tableau uses describe to pre-allocate columns; `TEXT` type is safe for POC |
