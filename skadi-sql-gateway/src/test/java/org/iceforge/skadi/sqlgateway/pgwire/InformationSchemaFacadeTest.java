@@ -42,7 +42,7 @@ public class InformationSchemaFacadeTest {
 
         static PgWireServerHarness startTrust() throws Exception {
             org.iceforge.skadi.sqlgateway.config.SqlGatewayProperties.PgWire.Auth auth =
-                    new org.iceforge.skadi.sqlgateway.config.SqlGatewayProperties.PgWire.Auth("trust", java.util.Map.of());
+                    new org.iceforge.skadi.sqlgateway.config.SqlGatewayProperties.PgWire.Auth("trust", null, java.util.Map.of(), null);
 
             org.iceforge.skadi.sqlgateway.config.SqlGatewayProperties.PgWire props =
                     new org.iceforge.skadi.sqlgateway.config.SqlGatewayProperties.PgWire(true, "127.0.0.1", 0, auth, null, null);

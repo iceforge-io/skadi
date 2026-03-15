@@ -3,6 +3,7 @@ package org.iceforge.skadi.sqlgateway.config;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -30,8 +31,11 @@ public record SqlGatewayProperties(
     ) {
         public record Auth(
                 String mode,
-                Map<String, String> users
+                String credentialStore,                      // "plaintext" (default) | "bcrypt"
+                Map<String, String> users,
+                Map<String, PolicyConfig> policies           // username → schema ACL
         ) {
+            public record PolicyConfig(List<String> allowedSchemas) {}
         }
     }
 

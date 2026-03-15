@@ -1,5 +1,9 @@
 package org.iceforge.skadi.sqlgateway.pgwire;
 
+import org.iceforge.skadi.sqlgateway.auth.AuthProvider;
+import org.iceforge.skadi.sqlgateway.auth.AuthProviderFactory;
+import org.iceforge.skadi.sqlgateway.auth.PrincipalPolicy;
+import org.iceforge.skadi.sqlgateway.auth.PrincipalPolicyRegistry;
 import org.iceforge.skadi.sqlgateway.cache.QueryCacheKey;
 import org.iceforge.skadi.sqlgateway.cache.QueryCacheMetrics;
 import org.iceforge.skadi.sqlgateway.cache.QueryResultCache;
@@ -48,12 +52,15 @@ final class PgWireSession implements Runnable {
     private final SqlGatewayProperties.PgWire props;
     private final SqlGatewayProperties.Cache cacheProps;
     private final SqlGatewayProperties.Trace traceProps;
+    private final AuthProvider authProvider;
+    private final PrincipalPolicyRegistry policyRegistry;
     private final String sessionId;
     private final TableauTraceLogger tracer;
     private final MetadataQueryRouter metadata;
 
-    // Authenticated username, captured at startup.
+    // Authenticated username and resolved policy, captured at startup.
     private String user = "";
+    private PrincipalPolicy policy = PrincipalPolicy.UNRESTRICTED;
 
     // Minimal extended-query state.
     private String lastPreparedSql;
@@ -67,6 +74,8 @@ final class PgWireSession implements Runnable {
         this.props = Objects.requireNonNull(props);
         this.cacheProps = cacheProps; // nullable
         this.traceProps = traceProps; // nullable
+        this.authProvider = AuthProviderFactory.create(props.auth());
+        this.policyRegistry = new PrincipalPolicyRegistry(props.auth());
         this.sessionId = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
         boolean te = traceProps != null && traceProps.isEnabled();
         String tdPath = (traceProps != null) ? traceProps.testdataPath() : null;
@@ -114,7 +123,7 @@ final class PgWireSession implements Runnable {
             Map<String, String> params = readStartupParams(buf);
             this.user = params.getOrDefault("user", "");
 
-            if (requiresPassword()) {
+            if (authProvider.requiresPassword()) {
                 writeAuthCleartext(out);
                 out.flush();
 
@@ -130,13 +139,16 @@ final class PgWireSession implements Runnable {
                 byte[] pwdBytes = in.readNBytes(mlen - 4);
                 String password = cstring(pwdBytes, 0);
 
-                if (!isPasswordValid(user, password)) {
+                if (!authProvider.authenticate(user, password)) {
                     writeError(out, "28P01", "password authentication failed");
                     writeReady(out);
                     out.flush();
                     return;
                 }
             }
+
+            // Resolve authorization policy for this principal.
+            this.policy = policyRegistry.policyFor(user);
 
             String client = deriveClient(params);
             MDC.put("client", client);
@@ -397,12 +409,36 @@ final class PgWireSession implements Runnable {
         writeError(out, "0A000", "Query not supported yet (MVP): " + s);
     }
 
-    private static void writeRowSet(DataOutputStream out, MetadataRowSet rs) throws IOException {
+    private void writeRowSet(DataOutputStream out, MetadataRowSet rs) throws IOException {
+        List<List<String>> rows = applyPolicyFilter(rs);
         writeRowDescription(out, rs.columns().toArray(new String[0]));
-        for (List<String> row : rs.rows()) {
+        for (List<String> row : rows) {
             PgRowWriter.writeDataRow(out, row.toArray(new String[0]));
         }
-        writeCommandComplete(out, rs.commandTag());
+        writeCommandComplete(out, "SELECT " + rows.size());
+    }
+
+    /**
+     * Filters metadata rowset rows to those permitted by the session's principal policy.
+     * Looks for a column named "table_schema" or "schema_name" and removes rows whose
+     * schema value is not in the allowed set.
+     */
+    private List<List<String>> applyPolicyFilter(MetadataRowSet rs) {
+        if (policy.isUnrestricted()) return rs.rows();
+        List<String> cols = rs.columns();
+        int schemaIdx = -1;
+        for (int i = 0; i < cols.size(); i++) {
+            String c = cols.get(i).toLowerCase(Locale.ROOT);
+            if (c.equals("table_schema") || c.equals("schema_name")) {
+                schemaIdx = i;
+                break;
+            }
+        }
+        if (schemaIdx < 0) return rs.rows(); // no schema column — can't filter
+        final int idx = schemaIdx;
+        return rs.rows().stream()
+                .filter(row -> row.size() > idx && policy.permitsSchema(row.get(idx)))
+                .toList();
     }
 
     private void streamJdbcQueryWithCaching(DataOutputStream out, SqlExecutorProvider executorProvider, String sql) throws Exception {
@@ -430,6 +466,10 @@ final class PgWireSession implements Runnable {
 
         try (Connection conn = executorProvider.getConnection();
              Statement st = conn.createStatement()) {
+
+            // Propagate Skadi identity to Databricks query history.
+            try { conn.setClientInfo("ApplicationName", "skadi-sql-gateway"); } catch (Exception ignored) {}
+            try { conn.setClientInfo("User", user); } catch (Exception ignored) {}
 
             if (fetchSize != null && fetchSize > 0) {
                 try {
@@ -543,20 +583,6 @@ final class PgWireSession implements Runnable {
         }
 
         writeCommandComplete(out, "SELECT " + rows);
-    }
-
-    private boolean requiresPassword() {
-        SqlGatewayProperties.PgWire.Auth auth = props.auth();
-        if (auth == null) return false;
-        String mode = auth.mode();
-        return mode != null && mode.equalsIgnoreCase("password");
-    }
-
-    private boolean isPasswordValid(String user, String password) {
-        SqlGatewayProperties.PgWire.Auth auth = props.auth();
-        if (auth == null || auth.users() == null) return false;
-        String expected = auth.users().get(user);
-        return expected != null && expected.equals(password);
     }
 
     private static String deriveClient(Map<String, String> params) {

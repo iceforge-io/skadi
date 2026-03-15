@@ -129,6 +129,12 @@
       <artifactId>arrow-memory-unsafe</artifactId>
     </dependency>
 
+    <!-- BCrypt password hashing for secure credential storage -->
+    <dependency>
+      <groupId>org.springframework.security</groupId>
+      <artifactId>spring-security-crypto</artifactId>
+    </dependency>
+
     <!-- Databricks driver is proprietary; keep as provided so CI can build without it. -->
     <dependency>
       <groupId>com.databricks</groupId>
