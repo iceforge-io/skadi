@@ -108,4 +108,22 @@
     </dependencies>
   </dependencyManagement>
 
+  <build>
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-surefire-plugin</artifactId>
+          <configuration>
+            <!-- One forked JVM per CPU core; reuse forks across test classes.
+                 Process-level isolation prevents port conflicts between
+                 Spring Boot integration tests that bind fixed ports. -->
+            <forkCount>1C</forkCount>
+            <reuseForks>true</reuseForks>
+          </configuration>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+  </build>
+
 </project>
