@@ -16,7 +16,8 @@ public record SqlGatewayProperties(
         Integer advertisedPort,
         PgWire pgwire,
         Metadata metadata,
-        Cache cache
+        Cache cache,
+        Trace trace
 ) {
 
     public record PgWire(
@@ -50,6 +51,18 @@ public record SqlGatewayProperties(
             String dbxCatalog,
             String dbxSchema
     ) {
+    }
+
+    /**
+     * Tableau trace mode configuration.
+     */
+    public record Trace(
+            boolean enabled,
+            String testdataPath
+    ) {
+        public boolean isEnabled() {
+            return enabled;
+        }
     }
 
     /**

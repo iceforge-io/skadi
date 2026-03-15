@@ -24,6 +24,10 @@ skadi:
       # If set, Skadi will call JDBC Statement#setFetchSize(fetchSize) before executing.
       # fetch-size: 1000
 
+    trace:
+      enabled: false
+      # testdata-path: testdata/tableau-traces
+
     cache:
       enabled: true
       ttl: 5m

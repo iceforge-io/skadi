@@ -7,8 +7,10 @@ import org.iceforge.skadi.sqlgateway.config.SqlGatewayProperties;
 import org.iceforge.skadi.sqlgateway.metadata.MetadataCache;
 import org.iceforge.skadi.sqlgateway.metadata.MetadataQueryRouter;
 import org.iceforge.skadi.sqlgateway.metadata.MetadataRowSet;
+import org.iceforge.skadi.sqlgateway.trace.TableauTraceLogger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
@@ -33,6 +35,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 
 final class PgWireSession implements Runnable {
     private static final Logger log = LoggerFactory.getLogger(PgWireSession.class);
@@ -44,6 +47,9 @@ final class PgWireSession implements Runnable {
     private final Socket socket;
     private final SqlGatewayProperties.PgWire props;
     private final SqlGatewayProperties.Cache cacheProps;
+    private final SqlGatewayProperties.Trace traceProps;
+    private final String sessionId;
+    private final TableauTraceLogger tracer;
     private final MetadataQueryRouter metadata;
 
     // Authenticated username, captured at startup.
@@ -55,10 +61,16 @@ final class PgWireSession implements Runnable {
     private String lastPortalName;
     private boolean portalHasResult;
 
-    PgWireSession(Socket socket, SqlGatewayProperties.PgWire props, SqlGatewayProperties.Cache cacheProps) {
+    PgWireSession(Socket socket, SqlGatewayProperties.PgWire props, SqlGatewayProperties.Cache cacheProps,
+                  SqlGatewayProperties.Trace traceProps) {
         this.socket = Objects.requireNonNull(socket);
         this.props = Objects.requireNonNull(props);
         this.cacheProps = cacheProps; // nullable
+        this.traceProps = traceProps; // nullable
+        this.sessionId = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+        boolean te = traceProps != null && traceProps.isEnabled();
+        String tdPath = (traceProps != null) ? traceProps.testdataPath() : null;
+        this.tracer = new TableauTraceLogger(sessionId, te, tdPath);
 
         // Metadata facade defaults. (We can plumb in SqlGatewayProperties.Metadata once PgWireServer passes it.)
         Duration ttl = Duration.ofMinutes(2);
@@ -70,6 +82,7 @@ final class PgWireSession implements Runnable {
 
     @Override
     public void run() {
+        MDC.put("session_id", sessionId);
         try (socket;
              DataInputStream in = new DataInputStream(new BufferedInputStream(socket.getInputStream()));
              DataOutputStream out = new DataOutputStream(new BufferedOutputStream(socket.getOutputStream()))) {
@@ -125,6 +138,10 @@ final class PgWireSession implements Runnable {
                 }
             }
 
+            String client = deriveClient(params);
+            MDC.put("client", client);
+            tracer.sessionStart(params, client);
+
             writeAuthOk(out);
             writeParameterStatus(out, "server_version", "15.0");
             writeParameterStatus(out, "client_encoding", "UTF8");
@@ -169,6 +186,7 @@ final class PgWireSession implements Runnable {
                     this.lastStatementName = readCString(mb);
                     String sql = readCString(mb);
                     this.lastPreparedSql = sql;
+                    tracer.statementParsed(sql);
                     writeParseComplete(out);
                     out.flush();
                     continue;
@@ -262,6 +280,9 @@ final class PgWireSession implements Runnable {
 
         } catch (Exception e) {
             log.debug("pgwire session ended with error: {}", e.toString());
+        } finally {
+            tracer.sessionEnd();
+            MDC.clear();
         }
     }
 
@@ -367,6 +388,7 @@ final class PgWireSession implements Runnable {
                 streamJdbcQueryWithCaching(out, executorProvider, s);
                 return;
             } catch (Exception e) {
+                tracer.queryError(s, "XX000", e.getMessage());
                 writeError(out, "XX000", "JDBC execution failed: " + e.getMessage());
                 return;
             }
@@ -395,11 +417,12 @@ final class PgWireSession implements Runnable {
                 QueryResultCache.CacheEntry entry = hit.get();
                 CACHE_METRICS.recordHit();
                 replayFromCache(out, entry);
-                log.info("cache_local=HIT cache_s3=SKIP rows={} latency_ms={}", entry.rows().size(), System.currentTimeMillis() - t0);
+                tracer.queryEnd(sql, entry.rows().size(), System.currentTimeMillis() - t0, "HIT");
                 return;
             }
             CACHE_METRICS.recordMiss();
         }
+        tracer.queryStart(sql);
 
         Integer fetchSize = props.fetchSize();
         Integer maxRows = props.maxRows();
@@ -425,9 +448,7 @@ final class PgWireSession implements Runnable {
             boolean hasResult = st.execute(sql);
             if (!hasResult) {
                 writeCommandComplete(out, "OK");
-                if (cacheEnabled) {
-                    log.info("cache_local=MISS cache_s3=SKIP rows=0 latency_ms={}", System.currentTimeMillis() - t0);
-                }
+                tracer.queryEnd(sql, 0, System.currentTimeMillis() - t0, "MISS");
                 return;
             }
 
@@ -478,8 +499,8 @@ final class PgWireSession implements Runnable {
                 if (cacheEnabled && bufferedRows != null) {
                     String key = QueryCacheKey.of(sql, user);
                     QUERY_CACHE.put(key, colMetas, bufferedRows, cacheProps.effectiveTtl());
-                    log.info("cache_local=MISS cache_s3=SKIP rows={} latency_ms={}", rows, System.currentTimeMillis() - t0);
                 }
+                tracer.queryEnd(sql, rows, System.currentTimeMillis() - t0, cacheEnabled ? "MISS" : "SKIP");
             }
         }
     }
@@ -536,6 +557,13 @@ final class PgWireSession implements Runnable {
         if (auth == null || auth.users() == null) return false;
         String expected = auth.users().get(user);
         return expected != null && expected.equals(password);
+    }
+
+    private static String deriveClient(Map<String, String> params) {
+        if (params == null) return "unknown";
+        String appName = params.getOrDefault("application_name", "");
+        if (appName.toLowerCase(Locale.ROOT).contains("tableau")) return "tableau";
+        return appName.isBlank() ? "unknown" : appName;
     }
 
     private static Map<String, String> readStartupParams(ByteBuffer buf) {
