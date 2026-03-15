@@ -24,6 +24,11 @@ skadi:
       # If set, Skadi will call JDBC Statement#setFetchSize(fetchSize) before executing.
       # fetch-size: 1000
 
+    cache:
+      enabled: true
+      ttl: 5m
+      max-entries: 500
+
     databricks:
       enabled: false
       host: ""

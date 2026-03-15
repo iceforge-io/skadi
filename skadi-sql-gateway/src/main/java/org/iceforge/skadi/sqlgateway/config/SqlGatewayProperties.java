@@ -15,7 +15,8 @@ public record SqlGatewayProperties(
         String advertisedHost,
         Integer advertisedPort,
         PgWire pgwire,
-        Metadata metadata
+        Metadata metadata,
+        Cache cache
 ) {
 
     public record PgWire(
@@ -49,5 +50,26 @@ public record SqlGatewayProperties(
             String dbxCatalog,
             String dbxSchema
     ) {
+    }
+
+    /**
+     * Query result cache configuration (POC: local in-memory only).
+     */
+    public record Cache(
+            boolean enabled,
+            Duration ttl,
+            Integer maxEntries
+    ) {
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public Duration effectiveTtl() {
+            return (ttl == null || ttl.isNegative() || ttl.isZero()) ? Duration.ofMinutes(5) : ttl;
+        }
+
+        public int effectiveMaxEntries() {
+            return (maxEntries == null || maxEntries <= 0) ? 500 : maxEntries;
+        }
     }
 }

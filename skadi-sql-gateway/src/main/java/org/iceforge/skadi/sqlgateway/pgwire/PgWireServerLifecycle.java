@@ -30,7 +30,7 @@ public class PgWireServerLifecycle implements SmartLifecycle {
         }
 
         try {
-            PgWireServer s = new PgWireServer(pg);
+            PgWireServer s = new PgWireServer(pg, props.cache());
             s.start();
             this.server = s;
             this.running = true;
