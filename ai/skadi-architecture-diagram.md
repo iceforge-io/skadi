@@ -163,6 +163,15 @@ For the POC:
 - recent COB dates may refresh every 2 hours
 - older dates remain stable
 # 7. Tableau Connectivity View
+```mermaid
+flowchart LR
+    Tableau[Tableau Desktop] --> PG[PostgreSQL Connector]
+    PG --> Gateway[Skadi SQL Gateway]
+    Gateway --> Meta[Metadata Shim]
+    Gateway --> Exec[Query Execution Path]
+    Exec --> DBX[Databricks SQL Warehouse]
+    Exec --> Cache[Skadi Cache]
+```
 ## Tableau-specific notes
 The gateway must support:
 - authentication
@@ -173,6 +182,14 @@ The gateway must support:
   The gateway does not need to implement all PostgreSQL features.
   It only needs the subset required for BI tools.
 # 8. Metadata Compatibility Layer
+```mermaid
+flowchart TD
+    Tableau[Tableau] --> MetaQueries[Metadata Queries]
+    MetaQueries --> Shim[Metadata Shim]
+    Shim --> DBMeta[Databricks Metadata]
+    DBMeta --> Synth[Synthetic PostgreSQL-Compatible Responses]
+    Synth --> Tableau
+```
 ## Expected metadata query families
 The gateway should support synthetic responses for:
 - information_schema.tables
@@ -181,6 +198,13 @@ The gateway should support synthetic responses for:
 - pg_catalog.pg_namespace
   These may be backed by Databricks metadata rather than native PostgreSQL catalogs.
 # 9. Result Conversion Pipeline
+```mermaid
+flowchart LR
+    DBX[Databricks JDBC] --> Arrow[Arrow RecordBatches]
+    Arrow --> Mapper[Type Mapping Layer]
+    Mapper --> PgWire[PgWire RowDescription + DataRow]
+    PgWire --> Client[Client]
+```
 ## Purpose
 Internally Skadi prefers Arrow because it is efficient for:
 - transport
@@ -189,6 +213,20 @@ Internally Skadi prefers Arrow because it is efficient for:
   Externally the SQL Gateway must emit PostgreSQL wire-protocol row messages.
   This makes Skadi usable by Tableau and other clients.
 # 10. Multi-Node Deployment
+```mermaid
+flowchart TD
+    LB[Load Balancer] --> NodeA[Skadi Node A]
+    LB --> NodeB[Skadi Node B]
+    LB --> NodeC[Skadi Node C]
+
+    NodeA --> S3[S3 Shared Cache]
+    NodeB --> S3
+    NodeC --> S3
+
+    NodeA --> DBX[Databricks SQL Warehouse]
+    NodeB --> DBX
+    NodeC --> DBX
+```
 # Multi-node goals
 - reuse cache across nodes
 - reduce repeated execution against Databricks
@@ -199,9 +237,46 @@ Internally Skadi prefers Arrow because it is efficient for:
   All nodes may optionally share:
 - S3 cache
 # 11. Concurrent Cache-Miss Control
+```mermaid
+sequenceDiagram
+    participant C1 as Client 1
+    participant C2 as Client 2
+    participant N as Skadi Node
+    participant K as Cache-Key Lock
+    participant D as Databricks
+    participant C as Cache
+
+    C1->>N: Execute Query
+    N->>C: Lookup Cache
+    C-->>N: Miss
+    N->>K: Acquire Lock
+    K-->>N: Granted
+    N->>D: Execute Query
+
+    C2->>N: Execute Same Query
+    N->>C: Lookup Cache
+    C-->>N: Miss
+    N->>K: Acquire Lock
+    K-->>N: Already Held
+
+    D-->>N: Return Result
+    N->>C: Store Cached Result
+    N-->>C1: Return Result
+
+    N->>C: Recheck Cache
+    C-->>N: Hit
+    N-->>C2: Return Cached Result
+```
 ## Purpose
 This pattern avoids duplicate execution when multiple users trigger the same dashboard query simultaneously.
 # 12. Observability View
+```mermaid
+flowchart TD
+    Gateway[SQL Gateway] --> Metrics[Metrics / Logs]
+    Server[Execution Engine] --> Metrics
+    Cache[Cache Layer] --> Metrics
+    Metrics --> Dash[Monitoring Dashboard]
+```
 ##Important metrics
 Track at minimum:
 - cache hit rate
@@ -214,6 +289,13 @@ Track at minimum:
 - proving POC value
 - operating the platform in production
 # 13. POC Success Path
+```mermaid
+flowchart TD
+    Gateway[SQL Gateway] --> Metrics[Metrics / Logs]
+    Server[Execution Engine] --> Metrics
+    Cache[Cache Layer] --> Metrics
+    Metrics --> Dash[Monitoring Dashboard]
+```
 ## POC definition of success
 1. A successful POC should demonstrate:
 1. Tableau can connect using the PostgreSQL connector
@@ -222,6 +304,13 @@ Track at minimum:
 1. Running the same query again produces a cache hit
 1. Warm execution is materially faster than cold execution
 # 14. Architecture Guardrails
+```mermaid
+flowchart TD
+    Change[Proposed Change] --> Decision{Where does it belong?}
+    Decision -->|Shared utility| Core[skadi-core]
+    Decision -->|Execution or caching| Server[skadi-server]
+    Decision -->|Client protocol or auth| Gateway[skadi-sql-gateway]
+```
 # Guardrails
 When evolving the codebase:
 - do not put network protocol code into skadi-core
