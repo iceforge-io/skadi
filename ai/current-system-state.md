@@ -1,7 +1,7 @@
 # Skadi — Current System State
 
 > Updated: 2026-03-15
-> Commit: `09ef4a0`
+> Commit: `5c07c1b`
 > Reflects actual codebase state, not intended architecture.
 
 ---
@@ -66,7 +66,7 @@ Complete enough for Tableau Desktop and psql. Supported messages:
 - `RowDescription`, `DataRow` (text format), `CommandComplete`, `ErrorResponse`, `ReadyForQuery`
 - `ParseComplete`, `BindComplete`, `CloseComplete`, `NoData`, `ParameterDescription`
 - `Terminate` (`X`)
-- **Not implemented:** `CancelRequest`
+- `CancelRequest` (80877102) — registry lookup + `Statement.cancel()` + Arrow cancel signal
 
 ### Authentication
 
@@ -88,7 +88,7 @@ Intercepts and answers synthetically (never touches Databricks for metadata):
 - `SHOW <setting>`, `SET …`, `RESET …`
 - `SELECT 1` keepalives
 
-Metadata values (`pgDatabase`, `dbxCatalog`, `dbxSchema`) are hardcoded in `PgWireSession` constructor — not wired from `SqlGatewayProperties.Metadata`.
+Metadata values (`pgDatabase`, `dbxCatalog`, `dbxSchema`) wired from `SqlGatewayProperties.Metadata` (with defaults); also covers `pg_catalog.pg_namespace`, `.pg_database`, `.pg_type`, `.pg_proc`, `.pg_class`, `.pg_attribute`, `.pg_roles`, and `current_database()` / `current_schema()` / `current_user`.
 
 ### SQL dialect translation
 
@@ -138,7 +138,6 @@ Metadata values (`pgDatabase`, `dbxCatalog`, `dbxSchema`) are hardcoded in `PgWi
 ### Production hardening (Lane B)
 
 - No TLS
-- No per-user query timeout or concurrency cap
 - No Prometheus / OpenTelemetry metrics
 - No audit log
 - No Tableau Server / Cloud deployment packaging
@@ -166,8 +165,8 @@ Metadata values (`pgDatabase`, `dbxCatalog`, `dbxSchema`) are hardcoded in `PgWi
 | Story | Description | Status | Notes |
 |---|---|---|---|
 | B1 | Auth & authorisation (enterprise-ready) | ✅ Done | trust / plaintext / bcrypt + schema ACL |
-| B2 | Cancellation, timeouts, resource controls | ❌ Not started | No `CancelRequest`; no per-user concurrency cap |
-| B3 | Protocol completeness for JDBC ecosystem | ⚠️ Partial | Bind params discarded; `CancelRequest` missing |
+| B2 | Cancellation, timeouts, resource controls | ✅ Done | `CancelRequest`; per-user concurrency cap; query timeout (path 1 + 3); cancel flag to Arrow path |
+| B3 | Protocol completeness for JDBC ecosystem | ⚠️ Partial | Bind params discarded (L1 open) |
 | B4 | Correctness test suite (golden results vs Databricks) | ❌ Not started | |
 | B5 | Observability — metrics, tracing, dashboards | ❌ Not started | Only basic hit/miss counters |
 | B6 | Security hardening — TLS, redaction, audit log | ❌ Not started | Plaintext credentials on wire |
@@ -210,45 +209,45 @@ Per-message loop:
     Sync  (S)   → ReadyForQuery
 
 streamJdbcQueryWithCaching(sql):
+  0. QueryGovernor.tryAcquire(user) — reject with 53300 if per-user cap exceeded
+     cancelFlag.set(false)
+
+  Path 3 (preferred, when PgWireQueryCachingExecutorProvider is configured):
+  1. SqlDialectBridge translates PG SQL → Databricks SQL
+  2. Cache key = SHA-256("user=<u>\nsql=<normalizedSql>\nparams=<params>\n")
+       CACHE HIT  → stream Arrow bytes → ArrowIpcRowWriter → DataRows; return
+       CACHE MISS → continue
+  3. JDBC PreparedStatement.execute(translatedSql)
+       ps.setQueryTimeout() from config
+       JdbcArrowStreamer polls cancelFlag::get
+  4. Buffer Arrow IPC bytes → store in cache; stream to client
+  5. QueryGovernor.release(user) [finally]
+
+  Path 1 fallback (text rows, direct JDBC):
   1. If cache.enabled and SELECT-like:
        key = QueryCacheKey.of(rawSql, user)
          = SHA-256("user=<u>\nsql=<normalized_sql>\n")
          [no parameters, no dataset version]
        CACHE HIT  → replayFromCache (text rows); return
        CACHE MISS → continue
-
   2. JDBC Connection from DatabricksJdbcExecutor (own pool)
-  3. Statement.execute(rawSql)
+  3. st.setQueryTimeout() from config; st.setMaxRows(); st.setFetchSize()
+     activeStatement = st (enables Statement.cancel() from CancelRequest)
+     Statement.execute(rawSql)
        *** rawSql is NOT passed through SqlDialectBridge ***
        *** PG-specific syntax may reach Databricks unchanged ***
   4. Stream ResultSet → DataRow messages (text encoding)
-  5. Store rows in QUERY_CACHE
+  5. Store rows in QUERY_CACHE; activeStatement = null [finally]
+  6. QueryGovernor.release(user) [finally]
 ```
 
 ---
 
 ## 6. Current Cache Behaviour
 
-Three independent caching mechanisms operate simultaneously inside `skadi-sql-gateway`:
+Two caching paths operate inside `skadi-sql-gateway` (Path 2 — `PgWireRowSetCache` — was dead code and has been deleted):
 
-### Path 1 — PgWireSession built-in (always active)
-
-- **Scope:** `private static final` JVM singleton; shared across all sessions
-- **Key:** `SHA-256("user=<u>\nsql=<normalizedSql>\n")` — no parameters, no dataset version
-- **Storage:** `List<ColumnMeta>` + `List<String[]>` text rows
-- **TTL:** from `SqlGatewayProperties.Cache.effectiveTtl()` (default 5 min)
-- **Max entries:** hardcoded 500 — `SqlGatewayProperties.Cache.maxEntries` is never read
-- **Config binding:** ignores `QueryResultCacheConfig` Spring bean entirely
-
-### Path 2 — PgWireRowSetCache (likely dead code)
-
-- **Scope:** Spring bean via `PgWireRowSetCacheWiring`
-- **Key:** constructed in `PgWireSessionRowSetCacheBridge`
-- **Storage:** `String[]` columns + `List<String[]>` rows
-- **TTL:** hardcoded 2 min inside `PgWireRowSetCache`
-- **Status:** no clear activation path while path 1 is always active; may double-cache results with a different TTL
-
-### Path 3 — PgWireQueryCachingExecutorProvider (conditional)
+### Path 3 — PgWireQueryCachingExecutorProvider (preferred, conditional)
 
 - **Condition:** `@ConditionalOnBean(databricksDataSource)` + `cache.enabled=true`
 - **Key:** `SHA-256("user=<u>\nsql=<normalizedSql>\nparams=<params>\n")` — includes parameters; no dataset version
@@ -267,6 +266,14 @@ Two config records both bind to `skadi.sql-gateway.cache` with different fields:
 | `CacheProperties` | ❌ | ❌ | ✅ | Path 3 + `QueryResultCacheConfig` |
 
 Setting `ttl` in YAML affects path 1. Setting `queryResultTtl` affects path 3. They do not share state.
+
+### Resource controls (B2)
+
+| Setting | Config key | Applied in |
+|---|---|---|
+| Query timeout | `pgwire.query-timeout` | Path 1: `st.setQueryTimeout()`; Path 3: `ps.setQueryTimeout()` |
+| Concurrency cap | `pgwire.max-concurrent-queries-per-user` | Both paths via `QueryGovernor` acquire/release |
+| Cancellation | Protocol: `CancelRequest` | Path 1: `Statement.cancel()`; Path 3: `cancelFlag` → `JdbcArrowStreamer` cancel supplier |
 
 ### What the architecture requires
 
@@ -288,13 +295,13 @@ None of this is fully in place. The S3 tier exists in `skadi-server` and is unre
 | L1 | Bind parameters discarded | Extended-query `Bind (B)` values are parsed and silently dropped. Parameterised Tableau queries execute with literal `$1`/`$2` markers reaching Databricks. |
 | L2 | Dialect bridge bypassed on primary path | `streamJdbcQueryWithCaching` sends raw client SQL to Databricks. PG-specific syntax (casts, quoted identifiers) may cause execution errors. |
 | L3 | Dataset version absent from cache keys | Stale results will be served if upstream data refreshes within the TTL window. No version-aware invalidation exists. |
-| L4 | Three parallel cache implementations | Different TTLs, different key schemes, different storage formats. Behaviour under concurrent load is hard to reason about. |
+| L4 | ~~Three parallel cache implementations~~ | **Fixed (B2/B3):** Path 2 (`PgWireRowSetCache`) deleted. Path 3 (Arrow) is preferred; Path 1 (text rows) is fallback. |
 | L5 | Cache config has two conflicting records | `SqlGatewayProperties.Cache` and `CacheProperties` bind to the same YAML prefix; different fields are silently ignored. |
 | L6 | Static cache singletons ignore Spring config | `PgWireSession.QUERY_CACHE` ignores `maxEntries` from config; `METADATA_CACHE` ignores `Metadata.ttl`; both ignore the Spring-managed `QueryResultCacheConfig` bean. |
-| L7 | Metadata config not wired | `pgDatabase`, `dbxCatalog`, `dbxSchema` are string literals in `PgWireSession` constructor, not read from `SqlGatewayProperties.Metadata`. |
-| L8 | `CancelRequest` not handled | Tableau sends cancel on user interrupt; currently ignored. |
+| L7 | ~~Metadata config not wired~~ | **Fixed (B3):** `pgDatabase`, `dbxCatalog`, `dbxSchema` now read from `SqlGatewayProperties.Metadata` with safe defaults. Extended pg_catalog coverage added. |
+| L8 | ~~`CancelRequest` not handled~~ | **Fixed (B2):** `CancelRequest` handled via `SessionRegistry`; `Statement.cancel()` + `cancelFlag` propagated to Arrow streaming path. |
 | L9 | No TLS | Credentials transmitted in cleartext. |
 | L10 | Gateway is not thin | Embeds its own JDBC pool, normalisation, and cache instead of delegating to `skadi-server`. Adding production features (timeouts, observability, distributed cache) requires doing so in both services. |
 | L11 | `JdbcArrowStreamer` duplicated | Independent copies in `skadi-core` and `skadi-server`; changes diverge. |
-| L12 | `PgWireRowSetCache` appears to be dead code | Superseded by path 1; no clear path to activation; adds maintenance surface. |
+| L12 | ~~`PgWireRowSetCache` dead code~~ | **Fixed (B3):** `PgWireRowSetCache` + wiring + bridge + tests deleted. |
 | L13 | `ai/query-flow.md` missing | Referenced in `ai/claude-instructions.md`; file does not exist. |
