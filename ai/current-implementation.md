@@ -1,305 +1,402 @@
-# Skadi — Current Implementation
+# Skadi — Current Implementation State
 
-> Written: 2026-03-15
-> Based on: codebase audit of `main` branch at commit `09ef4a0`
+> Last updated: 2026-03-15
+> Based on: full codebase audit + architecture doc review (`ai/`, `docs/architecture/`)
+> Commit: `09ef4a0`
 
----
-
-## 1. Deployed Architecture
-
-```
-Tableau / psql / DBeaver
-        │
-        │  PostgreSQL wire protocol (TCP :15432)
-        ▼
-┌────────────────────────────────────────────────────────┐
-│  skadi-sql-gateway  (Spring Boot, port 8090 HTTP)      │
-│                                                        │
-│  PgWireServer ──► PgWireSession (one thread per conn)  │
-│       │                                                │
-│       ├─ SSLRequest → 'N' (no TLS)                     │
-│       ├─ StartupMessage + optional cleartext password  │
-│       ├─ Auth: trust / plaintext / bcrypt              │
-│       ├─ ACL: PrincipalPolicy (per-user schema filter) │
-│       │                                                │
-│       ├─ MetadataQueryRouter (intercepted queries)     │
-│       │       └─ MetadataCache (TTL 2m, static)        │
-│       │                                                │
-│       └─ streamJdbcQueryWithCaching                    │
-│               ├─ QueryResultCache (TTL, static)        │
-│               └─ SqlExecutorProvider → Databricks JDBC │
-│                       └─ SQL dialect bridge            │
-│                                                        │
-│  HTTP endpoints: /actuator/health, /ping, /info        │
-└────────────────────────────────────────────────────────┘
-        │
-        │  Databricks JDBC (HTTPS)
-        ▼
-  Databricks SQL Warehouse
-
-─────────────────────────────────────────────────────────
-
-┌──────────────────────────────────────────────────────┐
-│  skadi-server  (separate Spring Boot service)        │
-│                                                      │
-│  Unrelated to skadi-sql-gateway in current state.    │
-│  Contains its own: HTTP query API, S3 cache tier,    │
-│  async query materialization, peer-cache replication,│
-│  JDBC SPI, dashboard UI, H2 demo mode.               │
-└──────────────────────────────────────────────────────┘
-
-┌────────────────────────────────────────────────────┐
-│  skadi-core  (shared library, minimal)             │
-│  Contains only: JdbcArrowStreamer                  │
-│  (also duplicated inside skadi-server)             │
-└────────────────────────────────────────────────────┘
-```
+This document is the authoritative reference for what exists in the repository today,
+measured against the intended architecture described in `ai/system-map.md`,
+`ai/skadi-architecture-diagram.md`, and the `docs/architecture/` series.
 
 ---
 
-## 2. Major Components and Responsibilities
+## 1. What Is Currently Implemented
 
-### skadi-sql-gateway
+### skadi-sql-gateway — fully active
 
-| Package | Class(es) | Responsibility |
+The gateway is a self-contained Spring Boot service that:
+
+- Accepts PostgreSQL wire-protocol connections on TCP port 15432
+- Handles the full pgwire startup sequence: SSLRequest (`N`), StartupMessage (protocol 3.0), optional cleartext-password auth
+- Dispatches Simple Query (`Q`) and a minimal subset of Extended Query (`P/B/D/E/S/C/H`)
+- Serves synthetic `information_schema` and `pg_catalog` metadata from an in-memory facade
+- Executes real queries against Databricks via its own embedded JDBC connection pool
+- Caches query results in-process (three parallel mechanisms — see §4)
+- Translates PG/MySQL SQL dialect to Databricks SQL (conditionally — see §5)
+- Logs structured session/query traces; optionally writes `.jsonl` corpus files
+- Enforces per-user schema ACLs via `PrincipalPolicy`
+- Exposes Spring Boot Actuator health + custom `/ping` and `/info` HTTP endpoints
+
+**Implemented pgwire messages**
+
+| Message | Direction | Status |
 |---|---|---|
-| `pgwire` | `PgWireServer` | TCP `ServerSocket` on configured port; one acceptor thread; spawns a cached thread per connection |
-| `pgwire` | `PgWireSession` | Runnable per connection; full pgwire message loop; auth, query dispatch, result streaming, caching, tracing |
-| `pgwire` | `JdbcToPgTypeMapper` | Maps JDBC `java.sql.Types` → PostgreSQL OIDs for `RowDescription` messages |
-| `pgwire` | `PgRowWriter` | Writes `DataRow` wire messages (text format only) |
-| `pgwire` | `SqlExecutorProvider` / `SqlExecutorProviderHolder` | Interface + static holder; allows Spring to inject the JDBC executor at runtime without PgWireSession needing a Spring context |
-| `pgwire` | `PgWireQueryCachingExecutorProvider` | Alternative executor path that caches results as raw Arrow bytes; wired via `PgWireQueryCachingWiring` when `databricksDataSource` bean + `cache.enabled=true` |
-| `pgwire` | `PgWireRowSetCache` / `PgWireRowSetCacheWiring` | Earlier row-set cache implementation (wired via `PgWireSessionRowSetCacheBridge`); stores `String[]` rows with TTL |
-| `auth` | `AuthProviderFactory` | Creates `AllowAllAuthProvider`, `PlaintextAuthProvider`, or `BcryptAuthProvider` from config `auth.mode` |
-| `auth` | `PrincipalPolicyRegistry` | Resolves `PrincipalPolicy` per username from `auth.policies` config; controls which schemas a user may see in metadata results |
-| `dialect` | `SqlDialectBridge` | Entry point for SQL translation; delegates to `PostgresToDatabricksTranslator` or `MySqlToDatabricksTranslator` |
-| `dialect` | `PostgresToDatabricksTranslator` | `::cast` → `CAST()`, `"ident"` → `` `ident` ``, `$n` markers → `?` with reordering |
-| `dialect` | `MySqlToDatabricksTranslator` | `LIMIT/OFFSET` reordering, parameter swap when needed |
-| `dialect` | `SqlNormalizer` | Strips comments, collapses whitespace, normalizes punctuation and casing for stable cache keys |
-| `dialect` | `ParameterMarkerRewriter` | Rewrites `$1`/`$2` Postgres markers to positional `?` markers, handling out-of-order and repeated references |
-| `metadata` | `MetadataQueryRouter` | Pattern-matches incoming SQL against known `information_schema` and `pg_catalog` queries; returns synthetic `MetadataRowSet` |
-| `metadata` | `MetadataCache` | TTL cache for metadata rowsets keyed by SQL string |
-| `cache` | `QueryResultCache` | TTL in-memory cache for both row-based results (`List<ColumnMeta>` + `List<String[]>`) and Arrow byte payloads |
-| `executor` | `DatabricksJdbcExecutor` | JDBC `DataSource` wrapper for Databricks; connection pool; captures Databricks query IDs from `SqlState` |
-| `trace` | `TableauTraceLogger` | Structured SLF4J logging with MDC (`session_id`, `client`); optional `.jsonl` corpus writer to `testdata/tableau-traces/` |
-| `config` | `SqlGatewayProperties` | Top-level config record; sub-records for `PgWire`, `Metadata`, `Cache`, `Trace` |
-| `api` | `HealthController`, `PingController`, `InfoController` | Spring MVC HTTP endpoints |
+| SSLRequest | client→server | ✅ Returns `N` |
+| StartupMessage | client→server | ✅ |
+| PasswordMessage (`p`) | client→server | ✅ cleartext only |
+| AuthenticationOk (`R=0`) | server→client | ✅ |
+| AuthenticationCleartextPassword (`R=3`) | server→client | ✅ |
+| ParameterStatus (`S`) | server→client | ✅ |
+| BackendKeyData (`K`) | server→client | ✅ |
+| ReadyForQuery (`Z`) | server→client | ✅ |
+| Query (`Q`) | client→server | ✅ Simple Query path |
+| Parse (`P`) | client→server | ✅ stores SQL |
+| Bind (`B`) | client→server | ✅ stores portal; **parameters discarded** |
+| Describe (`D`) | client→server | ✅ returns generic RowDescription |
+| Execute (`E`) | client→server | ✅ delegates to simple path |
+| Close (`C`) | client→server | ✅ replies CloseComplete |
+| Flush (`H`) | client→server | ✅ flushes output |
+| Sync (`S`) | client→server | ✅ replies ReadyForQuery |
+| Terminate (`X`) | client→server | ✅ closes session |
+| RowDescription (`T`) | server→client | ✅ text OIDs + type mapping |
+| DataRow (`D`) | server→client | ✅ text-encoded only |
+| CommandComplete (`C`) | server→client | ✅ |
+| ErrorResponse (`E`) | server→client | ✅ with SQLSTATE |
+| EmptyQueryResponse (`I`) | server→client | ✅ |
+| ParseComplete (`1`) | server→client | ✅ |
+| BindComplete (`2`) | server→client | ✅ |
+| CloseComplete (`3`) | server→client | ✅ |
+| NoData (`n`) | server→client | ✅ |
+| ParameterDescription (`t`) | server→client | ✅ always 0 params |
+| CancelRequest | client→server | ❌ not implemented |
 
-### skadi-server (independent service)
+**Implemented auth modes**
 
-`skadi-server` is a separate Spring Boot application that pre-dates `skadi-sql-gateway`. It has no shared runtime connection to the gateway. Key capabilities:
+| Mode | Class | Status |
+|---|---|---|
+| `trust` | `AllowAllAuthProvider` | ✅ |
+| `password` + `plaintext` store | `PlaintextAuthProvider` | ✅ |
+| `password` + `bcrypt` store | `BcryptAuthProvider` | ✅ |
+| mTLS | — | ❌ B6 |
+| OAuth / token | — | ❌ B6 |
 
-- **HTTP query API** (`/api/v1/query`) — submit SQL, async materialize to S3, retrieve Arrow chunks
-- **S3 cache tier** — `AwsSdkS3AccessLayer`, `CachedAwsSdkS3AccessLayer`, `ResultSetToS3ChunkWriter`; stores Arrow-serialized chunks in S3
-- **Peer-cache replication** — `PeerCacheController` / `PeerCacheClient`; nodes can serve each other's cached results
-- **JDBC SPI** — pluggable `JdbcConnectionProvider` registry
-- **Dashboard UI** — monitoring controller for cache stats
-- **H2 demo mode** — local in-process database for development
+**Implemented metadata intercepts**
 
-### skadi-core (shared library)
+| Query pattern | Response |
+|---|---|
+| `information_schema.schemata` | Synthetic row: `public` |
+| `information_schema.tables` | Synthetic rows from static config |
+| `information_schema.columns` | Synthetic rows from static config |
+| `pg_catalog.pg_namespace` | Synthetic |
+| `pg_catalog.pg_database` | Synthetic |
+| `current_database()` | Inline `postgres` |
+| `current_schema()` | Inline `public` |
+| `SELECT version()` | Inline `Skadi SQL Gateway (pgwire)` |
+| `SHOW <setting>` | Inline values for standard settings |
+| `SET / RESET` | No-op `CommandComplete` |
+| `SELECT current_setting(...)` | Empty string |
+| `SELECT 1` | Inline response |
 
-Contains only `JdbcArrowStreamer` — a utility that streams a JDBC `PreparedStatement` result into an Apache Arrow `IPC` byte stream. Also present (duplicated) inside `skadi-server`.
+**SQL dialect bridge** (`SqlDialectBridge`)
+
+| Rule | Status |
+|---|---|
+| PG `"ident"` → Databricks `` `ident` `` | ✅ |
+| PG `expr::type` → `CAST(expr AS type)` | ✅ |
+| PG `$n` markers → `?` (with reordering) | ✅ (class exists; not wired into primary path) |
+| MySQL `LIMIT/OFFSET` reorder | ✅ |
+| Parameter swap for `OFFSET ? LIMIT ?` | ✅ |
+
+**SQL normalization** (`SqlNormalizer`)
+
+| Rule | Status |
+|---|---|
+| Strip `--` line comments | ✅ |
+| Strip `/* */` block comments | ✅ |
+| Collapse whitespace | ✅ |
+| Trim outer whitespace | ✅ |
+| Uppercase outside string/double-quoted literals | ✅ |
+| Preserve string literal content | ✅ |
+| Preserve double-quoted identifier content | ✅ |
+| Normalize spacing around `=`, `,`, `(`, `)` | ✅ (extra beyond spec) |
 
 ---
 
-## 3. How Query Execution Currently Works
+### skadi-server — fully active, independent service
 
-### Connection lifecycle
+`skadi-server` is a complete standalone Spring Boot application. It is **not called by `skadi-sql-gateway`** and has no runtime connection to the gateway. It was built independently and contains:
 
-```
-Client TCP connect
-  → PgWireServer.accept()
-  → new PgWireSession(socket, ...) submitted to cached thread pool
-  → PgWireSession.run()
-       ├─ Read startup packet
-       ├─ Handle SSLRequest → 'N'
-       ├─ Read StartupMessage (protocol 3.0)
-       ├─ Auth exchange (trust / cleartext password)
-       ├─ Resolve PrincipalPolicy for user
-       ├─ Write AuthOk + ParameterStatus messages + ReadyForQuery
-       └─ Message loop
-```
+| Capability | Key classes |
+|---|---|
+| HTTP query API (`/api/v1/query`) | `QueryV1Controller`, `QueryV1Registry` |
+| Async query materialization | `QueryService`, `QueryRegistry` |
+| JDBC SPI (pluggable providers) | `JdbcConnectionProvider`, `JdbcClientFactory` |
+| S3 access layer | `AwsSdkS3AccessLayer`, `LocalFsS3AccessLayer` |
+| S3 cache tier (Arrow chunks) | `CachedAwsSdkS3AccessLayer`, `ResultSetToS3ChunkWriter` |
+| Peer-cache HTTP replication | `PeerCacheController`, `PeerCacheClient`, `PeerAuth` |
+| Arrow result streaming | `JdbcArrowStreamer` (duplicated from `skadi-core`) |
+| Dashboard / monitoring UI | `DashboardController`, `CacheStatsController` |
+| H2 demo mode | `DemoH2Config`, `DemoH2Service` |
+| Cache statistics | `CacheMetrics`, `QueryStatsRegistry` |
+| S3 client SPI | `S3ClientFactory`, `S3ClientProvider`, `DefaultAwsS3ClientProvider` |
 
-### Simple Query path (`Q` message — used by psql)
+---
 
-```
-PgWireSession.handleSimpleQuery(sql)
-  1. MetadataQueryRouter.tryAnswer(sql)
-     → if matched: write synthetic RowDescription + DataRows from cache/facade
-  2. Bootstrap intercepts (SET, RESET, SHOW, SELECT 1, version(), current_setting())
-     → inline hardcoded responses, never reaches Databricks
-  3. SqlExecutorProvider present?
-     → streamJdbcQueryWithCaching(out, executorProvider, sql)
-  4. Otherwise → ErrorResponse "Query not supported"
-```
+### skadi-core — shared library, largely empty
 
-### Extended Query path (`P/B/D/E/S` messages — used by Tableau, JDBC drivers)
+Contains only `JdbcArrowStreamer`. Per `ai/system-map.md` and `ai/claude-instructions.md`, it should also contain: query normalization, cache key hashing, dataset versioning, Arrow utilities, and configuration models. None of these exist here yet — they have grown inside the other modules instead.
 
-```
-Parse ('P')  → store sql as lastPreparedSql; reply ParseComplete
-Bind  ('B')  → store portal name; reply BindComplete
-              (bind parameters are parsed but NOT forwarded to JDBC — see gaps)
-Describe('D') → reply ParameterDescription(0 params) + RowDescription/NoData
-Execute ('E') → handleExecute(sql)
-                  ├─ MetadataQueryRouter.tryAnswer
-                  └─ handleSimpleQuery (reuses simple path)
-Sync  ('S')  → ReadyForQuery
-```
+---
 
-### JDBC execution path (`streamJdbcQueryWithCaching`)
+## 2. Which Architecture Components Already Exist
 
-```
-1. Cache lookup (if cache.enabled && SELECT-like query)
-   key = QueryCacheKey.of(sql, user)   // normalized_sql|user
-   hit → replayFromCache (RowDescription from cached ColumnMeta + DataRows)
-   miss → continue
+The following components from the intended architecture exist in the repository, though not always in the correct module or connected correctly:
 
-2. Acquire JDBC Connection from SqlExecutorProvider
-3. Set ApplicationName + User on connection (Databricks query history)
-4. Set fetchSize and maxRows from config
-5. Statement.execute(sql)
-   → note: sql is NOT passed through SqlDialectBridge here
-           (dialect bridge is only used in PgWireQueryCachingExecutorProvider)
-6. Stream ResultSet rows as text DataRow messages
-   → flush every 256 rows
-   → buffer all rows into List<String[]> for cache store
-7. Write CommandComplete
-8. Store in QUERY_CACHE (if cacheEnabled)
-```
+| Architecture Component | Exists? | Location | Correct module? |
+|---|---|---|---|
+| pgwire TCP server | ✅ | `skadi-sql-gateway` | ✅ |
+| Auth (trust/plaintext/bcrypt) | ✅ | `skadi-sql-gateway` | ✅ |
+| Per-user schema ACL | ✅ | `skadi-sql-gateway` | ✅ |
+| SQL dialect bridge (PG→Databricks) | ✅ | `skadi-sql-gateway` | ✅ |
+| SQL normalizer | ✅ | `skadi-sql-gateway/dialect` | ❌ should be `skadi-core` |
+| Cache key hashing | ✅ | `skadi-sql-gateway/cache` | ❌ should be `skadi-core` |
+| `information_schema` facade | ✅ | `skadi-sql-gateway` | ✅ |
+| Metadata TTL cache | ✅ | `skadi-sql-gateway` | ✅ |
+| Query result cache (in-memory) | ✅ | `skadi-sql-gateway` | ❌ should be `skadi-server` |
+| Trace logger + corpus writer | ✅ | `skadi-sql-gateway` | ✅ |
+| Databricks JDBC executor | ✅ | `skadi-sql-gateway` | ❌ should be `skadi-server` |
+| Arrow streaming (JDBC→Arrow) | ✅ | `skadi-core` + `skadi-server` (duplicated) | ❌ should be `skadi-core` only |
+| S3 cache tier (Arrow chunks) | ✅ | `skadi-server` | ✅ (not yet reachable from gateway) |
+| Peer-cache replication | ✅ | `skadi-server` | ✅ (not yet reachable from gateway) |
+| HTTP query execution API | ✅ | `skadi-server` | ✅ (not yet called by gateway) |
+| JDBC connection SPI | ✅ | `skadi-server` | ✅ (not yet used by gateway) |
+| Dataset versioning | ❌ | — | — |
+| Disk cache layer | ❌ | — | — |
+| Concurrent cache-miss lock | ❌ | — | — |
+| CancelRequest handling | ❌ | — | — |
+| TLS termination | ❌ | — | — |
 
-**Important:** The primary `PgWireSession` path (steps 2–8 above) executes the raw SQL received from the client without passing it through the `SqlDialectBridge`. SQL translation only happens inside `PgWireQueryCachingExecutorProvider`, which is the secondary cache path wired via Spring when both a `databricksDataSource` bean and `cache.enabled=true`.
+---
+
+## 3. Lane B — Completion Status
+
+Lane B stories from `ai/plan/tableau-sql-endpoint.md`:
+
+| Story | Description | Status | Notes |
+|---|---|---|---|
+| **B1** | Auth & authorization (enterprise-ready) | ✅ Done | trust / plaintext / bcrypt + schema ACL |
+| **B2** | Cancellation, timeouts, resource controls | ❌ Not started | No CancelRequest; no per-user concurrency cap; advisory `setMaxRows` only |
+| **B3** | Protocol completeness for JDBC ecosystem | ⚠️ Partial | Extended query works for Tableau; bind parameters discarded; CancelRequest missing |
+| **B4** | Correctness test suite (golden results) | ❌ Not started | No golden-result tests against Databricks; no seeded test dataset |
+| **B5** | Observability (production-grade) | ❌ Not started | Basic hit/miss counters only; no Prometheus/OTEL metrics, no tracing spans, no dashboards |
+| **B6** | Security hardening | ❌ Not started | No TLS; cleartext password only; no audit log; no token redaction in logs |
+| **B7** | Tableau Server / Cloud deployment | ❌ Not started | No Helm chart, no deployment docs beyond local dev runbook |
+| **B8** | MySQL wire-protocol endpoint (optional) | ❌ Not started | Dialect translator exists; no MySQL wire server |
 
 ---
 
 ## 4. How Caching Currently Works
 
-There are **three parallel caching mechanisms** in `skadi-sql-gateway`, all in use simultaneously:
+There are **three parallel, independent caching mechanisms** inside `skadi-sql-gateway`.
 
-### Cache path 1 — PgWireSession built-in (primary, active for all connections)
+### Cache path 1 — PgWireSession static cache (primary, always active)
 
 ```
-Location:    PgWireSession (static fields)
-Store:       QueryResultCache QUERY_CACHE = new QueryResultCache(Clock.systemUTC(), 500)
-             MetadataCache   METADATA_CACHE = new MetadataCache(Clock.systemUTC())
-Key:         QueryCacheKey.of(sql, user)  → SHA-256 of "raw_sql|user"
-Value:       List<ColumnMeta> + List<String[]> rows
+Classes:     PgWireSession.QUERY_CACHE, PgWireSession.METADATA_CACHE
+Lifecycle:   private static final — created at JVM class load, never destroyed
+Key:         QueryCacheKey.of(sql, user) → SHA-256 of "user=<u>\nsql=<normalized_sql>\n"
+             No parameters. No dataset version.
+Value:       List<ColumnMeta> + List<String[]> rows (text-encoded)
 TTL:         SqlGatewayProperties.Cache.effectiveTtl() (default 5m)
-Max entries: hardcoded 500 (ignores SqlGatewayProperties.Cache.maxEntries)
-Scope:       JVM-static; shared across all sessions; survives connection churn
-             NOT managed by Spring; ignores QueryResultCacheConfig bean
-Metadata:    MetadataCache also static; TTL hardcoded to 2m; ignores Metadata.ttl from config
+Max entries: hardcoded 500 — SqlGatewayProperties.Cache.maxEntries is never read
+Config:      Uses SqlGatewayProperties.Cache for TTL only; ignores maxEntries
+Spring:      Not managed by Spring; ignores QueryResultCacheConfig bean
 ```
 
-### Cache path 2 — PgWireRowSetCache (secondary, Spring-wired)
+### Cache path 2 — PgWireRowSetCache (likely dead code)
 
 ```
-Location:    PgWireRowSetCacheWiring → PgWireSessionRowSetCacheBridge (static holder)
-Store:       PgWireRowSetCache (separate ConcurrentHashMap)
-Key:         constructed in PgWireSessionRowSetCacheBridge
+Classes:     PgWireRowSetCache, PgWireRowSetCacheWiring, PgWireSessionRowSetCacheBridge
+Lifecycle:   Spring bean (optional)
+Key:         Constructed in PgWireSessionRowSetCacheBridge
 Value:       String[] columns + List<String[]> rows + commandTag
-TTL:         default 2m hardcoded in PgWireRowSetCache
-Scope:       Spring bean; only active when explicitly wired
-Status:      Appears to be an earlier iteration; superseded by cache path 1
-             May conflict/double-cache with path 1
+TTL:         hardcoded 2m inside PgWireRowSetCache
+Status:      Earlier iteration; no clear activation path while path 1 is always active
+             May double-cache same results with different TTL
 ```
 
-### Cache path 3 — PgWireQueryCachingExecutorProvider (tertiary, Arrow bytes)
+### Cache path 3 — PgWireQueryCachingExecutorProvider (Arrow bytes)
 
 ```
-Location:    PgWireQueryCachingWiring → PgWireSessionCachingBridge (static holder)
+Classes:     PgWireQueryCachingExecutorProvider, PgWireQueryCachingWiring
 Condition:   @ConditionalOnBean(databricksDataSource) + cache.enabled=true
-Store:       QueryResultCache.arrowMap (added in this session's fix)
-Key:         QueryResultCacheKey.cacheId(userScope, normalizedSql, normalizedParams)
-Value:       raw Arrow IPC bytes (ByteArrayOutputStream)
+Key:         QueryResultCacheKey.cacheId(userScope, normalizedSql, params) → SHA-256
+             Includes parameters. No dataset version.
+Value:       Raw Arrow IPC bytes
 TTL:         CacheProperties.queryResultTtl (default 2m)
-SQL path:    passes sql through SqlDialectBridge BEFORE execution
-Scope:       Spring bean; uses the injected QueryResultCache (not the static one)
+SQL path:    Passes SQL through SqlDialectBridge before execution (only path that does)
+Config:      Uses CacheProperties (separate config record from SqlGatewayProperties.Cache)
 ```
 
 ### Cache configuration split
 
-There are **two separate config records** for caching, bound to overlapping config paths:
+Two separate config records both bound to `skadi.sql-gateway.cache`:
 
-| Config record | Prefix | Used by |
+| Record | Has `ttl` | Has `maxEntries` | Has `queryResultTtl` | Used by |
+|---|---|---|---|---|
+| `SqlGatewayProperties.Cache` | ✅ | ✅ | ❌ | Path 1 (PgWireSession) |
+| `CacheProperties` | ❌ | ❌ | ✅ | Path 3 + QueryResultCacheConfig |
+
+Setting `ttl` in YAML affects path 1. Setting `queryResultTtl` affects path 3. The same key name maps to different fields.
+
+### What the architecture requires
+
+Per `ai/skadi-cache-architecture.md` and `ai/skadi-architecture-diagram.md`:
+- **One** deterministic cache: `hash(normalized_sql, parameters, dataset_version)`
+- Cache stores **Arrow RecordBatch streams**, not text rows
+- Cache hierarchy: memory → disk → S3
+- Cache owned by `skadi-server`, accessible to gateway
+- None of this is present today
+
+---
+
+## 5. How Query Execution Currently Works
+
+### Connection lifecycle
+
+```
+Client TCP connect → PgWireServer.accept()
+  → PgWireSession.run() on cached thread pool thread
+       ├── SSLRequest → 'N'
+       ├── StartupMessage (protocol 3.0)
+       ├── Optional cleartext password auth
+       ├── PrincipalPolicy resolved for user
+       ├── AuthOk + ParameterStatus + ReadyForQuery
+       └── Message loop (per-message dispatch)
+```
+
+### Simple Query path (psql, some JDBC drivers)
+
+```
+handleSimpleQuery(sql)
+  1. MetadataQueryRouter.tryAnswer(sql)     → synthetic response if matched
+  2. Bootstrap intercepts (SET/RESET/SHOW/SELECT 1/version()...)
+  3. SqlExecutorProvider present?
+       → streamJdbcQueryWithCaching(sql)    → Databricks JDBC
+  4. Else → ErrorResponse "not supported"
+```
+
+### Extended Query path (Tableau, JDBC)
+
+```
+Parse (P)   → store lastPreparedSql; ParseComplete
+Bind  (B)   → store portal name; BindComplete
+               *** bind parameter values parsed but silently discarded ***
+Describe(D) → ParameterDescription(0) + generic RowDescription
+Execute (E) → handleExecute(lastPreparedSql)
+               → same as handleSimpleQuery
+Sync  (S)   → ReadyForQuery
+```
+
+### JDBC execution (`streamJdbcQueryWithCaching`)
+
+```
+1. Cache lookup: QueryCacheKey.of(rawSql, user) → path 1 cache
+   HIT  → replayFromCache (text rows, no Arrow)
+   MISS → continue
+
+2. JDBC Connection from SqlExecutorProvider (Databricks connection pool)
+3. Statement.execute(rawSql)
+   *** rawSql is NOT passed through SqlDialectBridge ***
+   *** PG-specific syntax may reach Databricks unchanged ***
+
+4. Stream ResultSet → PgRowWriter.writeDataRow (text encoding)
+   Flush every 256 rows
+   Buffer all rows for cache write
+
+5. QUERY_CACHE.put(key, colMetas, rows, ttl)
+```
+
+**Critical:** SQL translation (`SqlDialectBridge`) is only applied in cache path 3 (`PgWireQueryCachingExecutorProvider`), which is conditionally active. The primary path executes raw client SQL directly.
+
+---
+
+## 6. Architecture Drift
+
+The following table documents where the current implementation diverges from the architecture defined in `ai/system-map.md`, `ai/skadi-architecture-diagram.md`, and `ai/claude-instructions.md`.
+
+### Structural drift (violates module responsibility boundaries)
+
+| ID | Architecture rule | Current state |
 |---|---|---|
-| `SqlGatewayProperties.Cache` | `skadi.sql-gateway.cache` | `PgWireSession` (path 1) |
-| `CacheProperties` | `skadi.sql-gateway.cache` | `QueryResultCacheConfig`, `PgWireQueryCachingWiring` (path 3) |
+| **D1** | `skadi-sql-gateway` is a thin protocol adapter; it calls `skadi-server` for execution | Gateway contains its own Databricks JDBC executor (`DatabricksJdbcExecutor`) and connection pool. `skadi-server` is never called. |
+| **D2** | Execution and caching belong in `skadi-server` | All active caching logic (`QueryResultCache`, `PgWireRowSetCache`, metadata cache) lives inside `skadi-sql-gateway`. |
+| **D3** | Query normalization and cache key hashing belong in `skadi-core` | `SqlNormalizer`, `QueryCacheKey`, `QueryResultCacheKey` all live in `skadi-sql-gateway/dialect` and `skadi-sql-gateway/cache`. |
+| **D4** | `JdbcArrowStreamer` is a `skadi-core` shared utility | Exists in both `skadi-core` and `skadi-server` as independent copies. Changes diverge. |
+| **D5** | `skadi-server` is the execution engine, called by the gateway | `skadi-server` is an independent service with its own HTTP API, never invoked by the gateway. No interface between the two exists. |
 
-Both bind to the same YAML prefix but have different fields, leading to silent divergence. `SqlGatewayProperties.Cache` has `ttl` and `maxEntries`; `CacheProperties` has `metadataTtl` and `queryResultTtl` but no `maxEntries`.
+### Functional drift (cache key incomplete)
 
-### Metadata cache
+| ID | Architecture requirement | Current state |
+|---|---|---|
+| **D6** | Cache key = `hash(normalized_sql, parameters, dataset_version)` | `QueryCacheKey` (path 1): `hash(normalized_sql, user)` — missing parameters and dataset version |
+| **D7** | Cache key = `hash(normalized_sql, parameters, dataset_version)` | `QueryResultCacheKey` (path 3): `hash(user, normalized_sql, params)` — missing dataset version |
+| **D8** | Dataset version included in every cache key to prevent stale results | No dataset version concept exists anywhere in the codebase |
 
-`MetadataQueryRouter` intercepts queries matching `information_schema.schemata/tables/columns` and `pg_catalog` probes. Responses are generated from static config values (`pgDatabase`, `dbxCatalog`, `dbxSchema`) hardcoded in the `PgWireSession` constructor — **not wired from `SqlGatewayProperties.Metadata`** yet.
+### Functional drift (cache storage format)
 
----
+| ID | Architecture requirement | Current state |
+|---|---|---|
+| **D9** | Cache stores Arrow RecordBatch streams | Path 1 stores `List<String[]>` text rows. Path 3 stores raw Arrow IPC bytes but is a secondary path only. |
+| **D10** | Cache hierarchy: memory → disk → S3 | Memory only (path 1). S3 exists in `skadi-server` but is unreachable from the gateway. No disk layer anywhere. |
 
-## 5. Known Gaps Relative to the Intended Design
+### Functional drift (SQL execution)
 
-### G1 — SQL dialect bridge not applied in primary execution path
+| ID | Architecture requirement | Current state |
+|---|---|---|
+| **D11** | All client SQL is dialect-translated before execution | Primary execution path (`streamJdbcQueryWithCaching`) sends raw client SQL to Databricks. Translation only in secondary path 3. |
+| **D12** | Bind parameters from `Bind (B)` message forwarded to JDBC `PreparedStatement` | Bind parameter values are parsed and silently discarded. Queries with `$n` markers are executed with literal markers against Databricks. |
 
-**Plan:** All client SQL is translated PG→Databricks before execution.
-**Reality:** `PgWireSession.streamJdbcQueryWithCaching` executes raw client SQL directly via JDBC. Only `PgWireQueryCachingExecutorProvider` (path 3, conditionally active) uses `SqlDialectBridge`. Most connections will run untranslated SQL against Databricks.
+### Configuration drift
 
-### G2 — Bind parameters not forwarded to JDBC
+| ID | Architecture requirement | Current state |
+|---|---|---|
+| **D13** | One cache config surface | Two overlapping config records (`SqlGatewayProperties.Cache` and `CacheProperties`) bind to the same YAML prefix with different field names. |
+| **D14** | Static cache config driven by `application.yml` | `PgWireSession.QUERY_CACHE` and `METADATA_CACHE` are `static final` singletons ignoring Spring config for max-entries and metadata mapping. |
 
-**Plan:** Parameter markers `$1`, `$2` are rewritten to `?` and bound correctly.
-**Reality:** The `Bind` (`B`) message handler reads and discards bind parameter values. `handleExecute` passes `lastPreparedSql` (the original statement text with `$n` markers) to `handleSimpleQuery` unchanged. No `PreparedStatement` with bound values is used. Story A4's `ParameterMarkerRewriter` exists but is not wired into the live session path.
+### Missing components (not yet implemented anywhere)
 
-### G3 — Three parallel cache implementations
-
-**Plan:** One query-result cache with configurable TTL and max-entries.
-**Reality:** `PgWireRowSetCache`, `QueryResultCache` (static in `PgWireSession`), and `PgWireQueryCachingExecutorProvider` (Arrow bytes via `QueryResultCache.arrowMap`) all operate independently. A query may be cached in multiple stores simultaneously with different TTLs and key schemes.
-
-### G4 — Static singletons bypass Spring configuration
-
-**Plan:** Cache TTL, max-entries, and metadata mapping driven by `application.yml`.
-**Reality:** `QUERY_CACHE`, `METADATA_CACHE`, and `CACHE_METRICS` in `PgWireSession` are `private static final` fields constructed at class-load time with hardcoded values. The `max-entries: 500` in `SqlGatewayProperties.Cache.effectiveMaxEntries()` is unused. Metadata config (`pgDatabase`, `dbxCatalog`, `dbxSchema`) is hardcoded as string literals in `PgWireSession`'s constructor rather than read from `SqlGatewayProperties.Metadata`.
-
-### G5 — Two conflicting cache config records
-
-**Plan:** One config surface for cache.
-**Reality:** `SqlGatewayProperties.Cache` and `CacheProperties` both bind to `skadi.sql-gateway.cache` with different field shapes. `SqlGatewayProperties.Cache` has `ttl`/`maxEntries`; `CacheProperties` has `metadataTtl`/`queryResultTtl`. Setting `ttl` in YAML affects path 1; setting `queryResultTtl` affects path 3.
-
-### G6 — `skadi-server` S3 cache tier not integrated with pgwire gateway
-
-**Plan (B-lane):** A distributed S3 cache tier sits behind the local in-memory cache.
-**Reality:** `skadi-server` has a complete S3 cache implementation (`CachedAwsSdkS3AccessLayer`, `ResultSetToS3ChunkWriter`, peer-cache replication) but there is no bridge or shared dependency from `skadi-sql-gateway` to `skadi-server`. These are independent applications.
-
-### G7 — `skadi-server` module role undefined
-
-**Plan:** `skadi-server` is described as a REST/management layer placeholder.
-**Reality:** It is a complete, independent service with its own HTTP query API, async query materialization, S3 integration, and JDBC SPI. Its relationship to `skadi-sql-gateway` is unspecified — they do not share code (except through the parent POM) and have no runtime interaction.
-
-### G8 — `JdbcArrowStreamer` duplicated
-
-**Reality:** The class exists independently in both `skadi-core` and `skadi-server` with no shared dependency. Changes to one do not propagate to the other.
-
-### G9 — `PgWireRowSetCache` is likely dead code
-
-`PgWireRowSetCache` and `PgWireRowSetCacheWiring` define an earlier cache iteration. With `PgWireSession`'s built-in `QUERY_CACHE` (path 1) always active and `PgWireQueryCachingExecutorProvider` (path 3) handling the Spring-wired path, `PgWireRowSetCache` has no clear activation path and duplicates the row-buffering logic.
-
-### G10 — No TLS, no cancellation, no per-user concurrency limits
-
-These are explicitly documented as B-lane items (B2, B6) and remain unimplemented. Relevant for any deployment beyond local development.
+| ID | Component | Needed for |
+|---|---|---|
+| **M1** | Dataset version resolution (table/partition metadata from Databricks) | Correct cache key; stale-result prevention |
+| **M2** | Disk cache layer | Architecture cache hierarchy |
+| **M3** | Concurrent cache-miss lock | Preventing duplicate Databricks execution |
+| **M4** | `skadi-server` callable interface (HTTP or internal) from gateway | Connecting the two services |
+| **M5** | `ai/query-flow.md` | Referenced in `ai/claude-instructions.md`; file does not exist |
 
 ---
 
-## Summary Table
+## 7. What Must Not Change Without Architecture Review
 
-| Area | Plan | Current State | Gap? |
-|---|---|---|---|
-| pgwire protocol (PG 3.0) | Full Simple + Extended Query | ✅ Implemented | — |
-| SSL/TLS | B6 (prod) | ❌ None; returns 'N' | Expected for POC |
-| Auth | trust / bcrypt / plaintext | ✅ All three modes | — |
-| Schema ACL (PrincipalPolicy) | Per-user schema filter | ✅ Implemented | — |
-| SQL dialect bridge | All queries translated | ⚠️ Only in cache path 3; primary path bypasses bridge | **G1** |
-| Bind parameters | `$n` → `?`, bound correctly | ⚠️ Parameters discarded; raw SQL executed | **G2** |
-| Metadata facade | `information_schema` answered from cache | ✅ Implemented | — |
-| Metadata config wiring | Driven by `SqlGatewayProperties.Metadata` | ⚠️ Hardcoded in `PgWireSession` constructor | **G4** |
-| Query result cache | Single TTL cache, keyed by normalizedSql+user | ⚠️ Three parallel implementations | **G3, G5** |
-| Cache TTL from config | `application.yml` driven | ⚠️ Static singletons ignore config | **G4** |
-| S3 cache tier | B-lane (distributed) | ❌ Exists in `skadi-server`, not connected | **G6** |
-| Trace logging | `TableauTraceLogger` + `.jsonl` corpus | ✅ Implemented | — |
-| Cancellation / timeouts | B2 | ❌ Not implemented | Expected for POC |
-| Concurrency limits | B2 | ❌ Not implemented | Expected for POC |
-| Observability (metrics) | B5 | ⚠️ Basic hit/miss counters; no Prometheus/OTEL | Expected for POC |
+Per `ai/claude-instructions.md` and `ai/system-map.md`, any changes that:
+
+1. Move execution logic into `skadi-sql-gateway` (drift gets worse, not better)
+2. Add a third or fourth cache implementation without removing the existing parallel ones
+3. Add a new config record for cache properties (two already conflict)
+4. Duplicate shared utilities instead of placing them in `skadi-core`
+5. Expand `skadi-core` to contain Spring Boot or network code
+
+...require explicit architectural decision before proceeding.
+
+---
+
+## Summary: Implementation vs Architecture
+
+| Concern | Architecture intent | Implementation state |
+|---|---|---|
+| pgwire protocol | thin adapter | ✅ Complete (minor gaps: no CancelRequest, bind params discarded) |
+| Auth | trust / password modes | ✅ B1 complete |
+| SQL dialect translation | all queries translated | ⚠️ Exists but only on secondary path |
+| Bind parameter handling | forwarded to JDBC | ❌ Discarded |
+| Metadata facade | synthetic `information_schema` | ✅ Works; config not wired |
+| Normalization | `skadi-core` utility | ⚠️ Exists in wrong module |
+| Cache key | `hash(sql, params, dataset_version)` | ⚠️ Missing dataset_version; path 1 also missing params |
+| Cache storage | Arrow RecordBatches | ⚠️ Path 1 stores text rows; path 3 stores Arrow bytes |
+| Cache layers | memory → disk → S3 | ⚠️ Memory only in gateway; S3 exists in server but unreachable |
+| Dataset versioning | partition-aware, in cache key | ❌ Not implemented |
+| Module separation | gateway calls server | ❌ Gateway is self-contained; server never called |
+| Distributed cache | shared S3 across nodes | ❌ S3 exists in server; no multi-node path |
+| Observability | metrics + tracing | ⚠️ Basic counters only |
+| TLS | required for production | ❌ B6; not started |
+| Cancellation | CancelRequest + JDBC cancel | ❌ B2; not started |
+| Concurrency limits | per-user caps | ❌ B2; not started |
