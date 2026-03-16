@@ -24,6 +24,7 @@ final class PgType {
     static final int VARCHAR = 1043;
 
     static final int DATE = 1082;
+    static final int TIME = 1083;
     static final int TIMESTAMP = 1114; // timestamp without time zone
     static final int TIMESTAMPTZ = 1184; // timestamp with time zone
 

@@ -30,6 +30,8 @@ public class PgWireServer implements AutoCloseable {
     private final SqlGatewayProperties.PgWire props;
     private final SqlGatewayProperties.Cache cacheProps;
     private final SqlGatewayProperties.Trace traceProps;
+    private final SqlGatewayProperties.Metadata metadataProps;
+    private final SessionRegistry sessionRegistry = new SessionRegistry();
     private final ExecutorService acceptor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "pgwire-acceptor");
         t.setDaemon(true);
@@ -47,9 +49,16 @@ public class PgWireServer implements AutoCloseable {
 
     public PgWireServer(SqlGatewayProperties.PgWire props, SqlGatewayProperties.Cache cacheProps,
                         SqlGatewayProperties.Trace traceProps) {
+        this(props, cacheProps, traceProps, null);
+    }
+
+    public PgWireServer(SqlGatewayProperties.PgWire props, SqlGatewayProperties.Cache cacheProps,
+                        SqlGatewayProperties.Trace traceProps,
+                        SqlGatewayProperties.Metadata metadataProps) {
         this.props = Objects.requireNonNull(props, "props");
-        this.cacheProps = cacheProps; // nullable
-        this.traceProps = traceProps; // nullable
+        this.cacheProps = cacheProps;     // nullable
+        this.traceProps = traceProps;     // nullable
+        this.metadataProps = metadataProps; // nullable
     }
 
     public void start() throws IOException {
@@ -71,7 +80,8 @@ public class PgWireServer implements AutoCloseable {
                     Socket s = ss.accept();
                     s.setTcpNoDelay(true);
                     s.setSoTimeout((int) Duration.ofMinutes(5).toMillis());
-                    sessions.submit(new PgWireSession(s, props, cacheProps, traceProps));
+                    sessions.submit(new PgWireSession(s, props, cacheProps, traceProps,
+                            metadataProps, sessionRegistry));
                 } catch (java.net.SocketTimeoutException expected) {
                     // Normal when we set SO_TIMEOUT so we can check `running` regularly.
                 } catch (IOException e) {

@@ -29,6 +29,7 @@ import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
+import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Clock;
 import java.time.Duration;
@@ -40,6 +41,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ThreadLocalRandom;
 
 final class PgWireSession implements Runnable {
     private static final Logger log = LoggerFactory.getLogger(PgWireSession.class);
@@ -57,6 +59,10 @@ final class PgWireSession implements Runnable {
     private final String sessionId;
     private final TableauTraceLogger tracer;
     private final MetadataQueryRouter metadata;
+    private final SessionRegistry registry; // nullable
+    private final int pid;
+    private final int secretKey;
+    private final String dbxSchema; // for SHOW search_path
 
     // Authenticated username and resolved policy, captured at startup.
     private String user = "";
@@ -68,25 +74,56 @@ final class PgWireSession implements Runnable {
     private String lastPortalName;
     private boolean portalHasResult;
 
+    // Active JDBC Statement; stored so a CancelRequest from another connection can interrupt it.
+    private volatile Statement activeStatement;
+
     PgWireSession(Socket socket, SqlGatewayProperties.PgWire props, SqlGatewayProperties.Cache cacheProps,
                   SqlGatewayProperties.Trace traceProps) {
+        this(socket, props, cacheProps, traceProps, null, null);
+    }
+
+    PgWireSession(Socket socket, SqlGatewayProperties.PgWire props, SqlGatewayProperties.Cache cacheProps,
+                  SqlGatewayProperties.Trace traceProps,
+                  SqlGatewayProperties.Metadata metadataProps,
+                  SessionRegistry registry) {
         this.socket = Objects.requireNonNull(socket);
         this.props = Objects.requireNonNull(props);
-        this.cacheProps = cacheProps; // nullable
-        this.traceProps = traceProps; // nullable
+        this.cacheProps = cacheProps;   // nullable
+        this.traceProps = traceProps;   // nullable
+        this.registry = registry;       // nullable
         this.authProvider = AuthProviderFactory.create(props.auth());
         this.policyRegistry = new PrincipalPolicyRegistry(props.auth());
         this.sessionId = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+        this.pid = SessionRegistry.allocatePid();
+        this.secretKey = ThreadLocalRandom.current().nextInt();
         boolean te = traceProps != null && traceProps.isEnabled();
         String tdPath = (traceProps != null) ? traceProps.testdataPath() : null;
         this.tracer = new TableauTraceLogger(sessionId, te, tdPath);
 
-        // Metadata facade defaults. (We can plumb in SqlGatewayProperties.Metadata once PgWireServer passes it.)
-        Duration ttl = Duration.ofMinutes(2);
-        String pgDb = "postgres";
-        String catalog = "main";
-        String schema = "public";
-        this.metadata = new MetadataQueryRouter(METADATA_CACHE, ttl, pgDb, catalog, schema);
+        // Metadata facade: use config values if available, otherwise fall back to defaults.
+        Duration metaTtl = (metadataProps != null && metadataProps.ttl() != null)
+                ? metadataProps.ttl() : Duration.ofMinutes(2);
+        String pgDb = nonBlank(metadataProps != null ? metadataProps.pgDatabase() : null, "postgres");
+        String catalog = nonBlank(metadataProps != null ? metadataProps.dbxCatalog() : null, "main");
+        String schema = nonBlank(metadataProps != null ? metadataProps.dbxSchema() : null, "public");
+        this.dbxSchema = schema;
+        this.metadata = new MetadataQueryRouter(METADATA_CACHE, metaTtl, pgDb, catalog, schema);
+    }
+
+    private static String nonBlank(String value, String defaultValue) {
+        return (value == null || value.isBlank()) ? defaultValue : value;
+    }
+
+    /** Called from a different thread when a CancelRequest targets this session. */
+    void cancelActiveQuery() {
+        Statement s = activeStatement;
+        if (s != null) {
+            try {
+                s.cancel();
+            } catch (SQLException ignored) {
+                // Best-effort; driver may not support Statement.cancel()
+            }
+        }
     }
 
     @Override
@@ -111,6 +148,13 @@ final class PgWireSession implements Runnable {
                 payload = in.readNBytes(len - 4);
                 buf = ByteBuffer.wrap(payload).order(ByteOrder.BIG_ENDIAN);
                 code = buf.getInt();
+            }
+
+            if (code == 80877102) { // CancelRequest: int32(pid) + int32(secretKey)
+                int cancelPid = buf.getInt();
+                int cancelKey = buf.getInt();
+                if (registry != null) registry.cancel(cancelPid, cancelKey);
+                return; // close connection; per protocol no response is sent
             }
 
             if (code != 196608) { // protocol 3.0
@@ -160,9 +204,13 @@ final class PgWireSession implements Runnable {
             writeParameterStatus(out, "DateStyle", "ISO, MDY");
             writeParameterStatus(out, "standard_conforming_strings", "on");
             writeParameterStatus(out, "TimeZone", "UTC");
-            writeBackendKeyData(out, 1, 1);
+            writeParameterStatus(out, "integer_datetimes", "on");
+            writeParameterStatus(out, "IntervalStyle", "postgres");
+            writeBackendKeyData(out, pid, secretKey);
             writeReady(out);
             out.flush();
+
+            if (registry != null) registry.register(pid, secretKey, this);
 
             // Main loop.
             while (true) {
@@ -293,6 +341,7 @@ final class PgWireSession implements Runnable {
         } catch (Exception e) {
             log.debug("pgwire session ended with error: {}", e.toString());
         } finally {
+            if (registry != null) registry.deregister(pid, secretKey);
             tracer.sessionEnd();
             MDC.clear();
         }
@@ -358,10 +407,19 @@ final class PgWireSession implements Runnable {
             if (setting.endsWith(";")) setting = setting.substring(0, setting.length() - 1).trim();
             String val = switch (setting) {
                 case "standard_conforming_strings" -> "on";
-                case "client_encoding" -> "UTF8";
-                case "datestyle" -> "ISO, MDY";
-                case "timezone" -> "UTC";
-                default -> "";
+                case "client_encoding"             -> "UTF8";
+                case "datestyle"                   -> "ISO, MDY";
+                case "timezone"                    -> "UTC";
+                case "server_version"              -> "15.0";
+                case "server_version_num"          -> "150000";
+                case "transaction_isolation"       -> "read committed";
+                case "search_path"                 -> dbxSchema;
+                case "max_connections"             -> "100";
+                case "integer_datetimes"           -> "on";
+                case "intervalstyle"               -> "postgres";
+                case "application_name"            -> "";
+                case "in_hot_standby"              -> "off";
+                default                            -> "";
             };
             writeRowDescription(out, new String[]{setting});
             PgRowWriter.writeDataRow(out, new String[]{val});
@@ -442,9 +500,22 @@ final class PgWireSession implements Runnable {
     }
 
     private void streamJdbcQueryWithCaching(DataOutputStream out, SqlExecutorProvider executorProvider, String sql) throws Exception {
+        // Path 3: Arrow-based caching with SQL dialect translation (preferred when configured).
+        PgWireQueryCachingExecutorProvider cachingProvider = PgWireSessionCachingBridge.get();
+        if (cachingProvider != null && guessHasResult(sql)) {
+            long t0 = System.currentTimeMillis();
+            tracer.queryStart(sql);
+            var arrowBuf = QueryResultCache.newBuffer();
+            String cacheTag = cachingProvider.executeToStream(sql, List.of(), user, arrowBuf);
+            long rows = ArrowIpcRowWriter.writeRows(arrowBuf.toByteArray(), out);
+            writeCommandComplete(out, "SELECT " + rows);
+            tracer.queryEnd(sql, rows, System.currentTimeMillis() - t0, cacheTag);
+            return;
+        }
+
+        // Path 1 fallback: direct JDBC with text-row caching (no dialect translation).
         boolean cacheEnabled = cacheProps != null && cacheProps.isEnabled() && guessHasResult(sql);
 
-        // Cache lookup (only for SELECT-like queries).
         if (cacheEnabled) {
             String key = QueryCacheKey.of(sql, user);
             Optional<QueryResultCache.CacheEntry> hit = QUERY_CACHE.get(key);
@@ -467,80 +538,71 @@ final class PgWireSession implements Runnable {
         try (Connection conn = executorProvider.getConnection();
              Statement st = conn.createStatement()) {
 
-            // Propagate Skadi identity to Databricks query history.
-            try { conn.setClientInfo("ApplicationName", "skadi-sql-gateway"); } catch (Exception ignored) {}
-            try { conn.setClientInfo("User", user); } catch (Exception ignored) {}
+            // Register active statement for cancellation support.
+            this.activeStatement = st;
 
-            if (fetchSize != null && fetchSize > 0) {
-                try {
-                    st.setFetchSize(fetchSize);
-                } catch (Exception ignored) {
+            try {
+                // Propagate Skadi identity to Databricks query history.
+                try { conn.setClientInfo("ApplicationName", "skadi-sql-gateway"); } catch (Exception ignored) {}
+                try { conn.setClientInfo("User", user); } catch (Exception ignored) {}
+
+                if (fetchSize != null && fetchSize > 0) {
+                    try { st.setFetchSize(fetchSize); } catch (Exception ignored) {}
                 }
-            }
-
-            if (maxRows != null && maxRows > 0) {
-                try {
-                    st.setMaxRows(maxRows);
-                } catch (Exception ignored) {
-                }
-            }
-
-            boolean hasResult = st.execute(sql);
-            if (!hasResult) {
-                writeCommandComplete(out, "OK");
-                tracer.queryEnd(sql, 0, System.currentTimeMillis() - t0, "MISS");
-                return;
-            }
-
-            try (ResultSet rs = st.getResultSet()) {
-                ResultSetMetaData md = rs.getMetaData();
-                writeRowDescription(out, md);
-
-                final int colCount = md.getColumnCount();
-
-                // Buffer columns for caching.
-                List<QueryResultCache.ColumnMeta> colMetas = null;
-                List<String[]> bufferedRows = null;
-                if (cacheEnabled) {
-                    colMetas = new ArrayList<>(colCount);
-                    for (int i = 1; i <= colCount; i++) {
-                        String colName = md.getColumnLabel(i);
-                        colMetas.add(new QueryResultCache.ColumnMeta(
-                                colName == null ? ("col_" + i) : colName,
-                                JdbcToPgTypeMapper.toPgOid(md, i)));
-                    }
-                    bufferedRows = new ArrayList<>();
+                if (maxRows != null && maxRows > 0) {
+                    try { st.setMaxRows(maxRows); } catch (Exception ignored) {}
                 }
 
-                long rows = 0;
-                final int flushEvery = 256;
-                while (rs.next()) {
-                    String[] row = new String[colCount];
-                    for (int i = 1; i <= colCount; i++) {
-                        Object v = rs.getObject(i);
-                        row[i - 1] = (v == null) ? null : v.toString();
+                boolean hasResult = st.execute(sql);
+                if (!hasResult) {
+                    writeCommandComplete(out, "OK");
+                    tracer.queryEnd(sql, 0, System.currentTimeMillis() - t0, "MISS");
+                    return;
+                }
+
+                try (ResultSet rs = st.getResultSet()) {
+                    ResultSetMetaData md = rs.getMetaData();
+                    writeRowDescription(out, md);
+
+                    final int colCount = md.getColumnCount();
+
+                    List<QueryResultCache.ColumnMeta> colMetas = null;
+                    List<String[]> bufferedRows = null;
+                    if (cacheEnabled) {
+                        colMetas = new ArrayList<>(colCount);
+                        for (int i = 1; i <= colCount; i++) {
+                            String colName = md.getColumnLabel(i);
+                            colMetas.add(new QueryResultCache.ColumnMeta(
+                                    colName == null ? ("col_" + i) : colName,
+                                    JdbcToPgTypeMapper.toPgOid(md, i)));
+                        }
+                        bufferedRows = new ArrayList<>();
                     }
 
-                    PgRowWriter.writeDataRow(out, row);
-                    rows++;
-
-                    if (bufferedRows != null) {
-                        bufferedRows.add(row);
+                    long rows = 0;
+                    final int flushEvery = 256;
+                    while (rs.next()) {
+                        String[] row = new String[colCount];
+                        for (int i = 1; i <= colCount; i++) {
+                            Object v = rs.getObject(i);
+                            row[i - 1] = (v == null) ? null : v.toString();
+                        }
+                        PgRowWriter.writeDataRow(out, row);
+                        rows++;
+                        if (bufferedRows != null) bufferedRows.add(row);
+                        if (rows % flushEvery == 0) out.flush();
                     }
 
-                    if (rows % flushEvery == 0) {
-                        out.flush();
+                    writeCommandComplete(out, "SELECT " + rows);
+
+                    if (cacheEnabled && bufferedRows != null) {
+                        String key = QueryCacheKey.of(sql, user);
+                        QUERY_CACHE.put(key, colMetas, bufferedRows, cacheProps.effectiveTtl());
                     }
+                    tracer.queryEnd(sql, rows, System.currentTimeMillis() - t0, cacheEnabled ? "MISS" : "SKIP");
                 }
-
-                writeCommandComplete(out, "SELECT " + rows);
-
-                // Store in cache after successful execution.
-                if (cacheEnabled && bufferedRows != null) {
-                    String key = QueryCacheKey.of(sql, user);
-                    QUERY_CACHE.put(key, colMetas, bufferedRows, cacheProps.effectiveTtl());
-                }
-                tracer.queryEnd(sql, rows, System.currentTimeMillis() - t0, cacheEnabled ? "MISS" : "SKIP");
+            } finally {
+                this.activeStatement = null;
             }
         }
     }
