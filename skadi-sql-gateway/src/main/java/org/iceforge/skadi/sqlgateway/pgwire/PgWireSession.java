@@ -42,6 +42,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.BooleanSupplier;
 
 final class PgWireSession implements Runnable {
     private static final Logger log = LoggerFactory.getLogger(PgWireSession.class);
@@ -60,9 +62,13 @@ final class PgWireSession implements Runnable {
     private final TableauTraceLogger tracer;
     private final MetadataQueryRouter metadata;
     private final SessionRegistry registry; // nullable
+    private final QueryGovernor governor;   // nullable
     private final int pid;
     private final int secretKey;
     private final String dbxSchema; // for SHOW search_path
+
+    // Per-query cancel signal: set by cancelActiveQuery(), reset before each execution.
+    private final AtomicBoolean cancelFlag = new AtomicBoolean(false);
 
     // Authenticated username and resolved policy, captured at startup.
     private String user = "";
@@ -79,18 +85,27 @@ final class PgWireSession implements Runnable {
 
     PgWireSession(Socket socket, SqlGatewayProperties.PgWire props, SqlGatewayProperties.Cache cacheProps,
                   SqlGatewayProperties.Trace traceProps) {
-        this(socket, props, cacheProps, traceProps, null, null);
+        this(socket, props, cacheProps, traceProps, null, null, null);
     }
 
     PgWireSession(Socket socket, SqlGatewayProperties.PgWire props, SqlGatewayProperties.Cache cacheProps,
                   SqlGatewayProperties.Trace traceProps,
                   SqlGatewayProperties.Metadata metadataProps,
                   SessionRegistry registry) {
+        this(socket, props, cacheProps, traceProps, metadataProps, registry, null);
+    }
+
+    PgWireSession(Socket socket, SqlGatewayProperties.PgWire props, SqlGatewayProperties.Cache cacheProps,
+                  SqlGatewayProperties.Trace traceProps,
+                  SqlGatewayProperties.Metadata metadataProps,
+                  SessionRegistry registry,
+                  QueryGovernor governor) {
         this.socket = Objects.requireNonNull(socket);
         this.props = Objects.requireNonNull(props);
         this.cacheProps = cacheProps;   // nullable
         this.traceProps = traceProps;   // nullable
         this.registry = registry;       // nullable
+        this.governor = governor;       // nullable
         this.authProvider = AuthProviderFactory.create(props.auth());
         this.policyRegistry = new PrincipalPolicyRegistry(props.auth());
         this.sessionId = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
@@ -116,6 +131,7 @@ final class PgWireSession implements Runnable {
 
     /** Called from a different thread when a CancelRequest targets this session. */
     void cancelActiveQuery() {
+        cancelFlag.set(true);
         Statement s = activeStatement;
         if (s != null) {
             try {
@@ -500,13 +516,29 @@ final class PgWireSession implements Runnable {
     }
 
     private void streamJdbcQueryWithCaching(DataOutputStream out, SqlExecutorProvider executorProvider, String sql) throws Exception {
+        // Enforce per-user concurrency limit.
+        if (governor != null && !governor.tryAcquire(user)) {
+            writeError(out, "53300", "too many concurrent queries for user: " + user);
+            return;
+        }
+        try {
+            cancelFlag.set(false);
+            streamJdbcQueryWithCachingInner(out, executorProvider, sql);
+        } finally {
+            if (governor != null) governor.release(user);
+        }
+    }
+
+    private void streamJdbcQueryWithCachingInner(DataOutputStream out, SqlExecutorProvider executorProvider, String sql) throws Exception {
         // Path 3: Arrow-based caching with SQL dialect translation (preferred when configured).
         PgWireQueryCachingExecutorProvider cachingProvider = PgWireSessionCachingBridge.get();
         if (cachingProvider != null && guessHasResult(sql)) {
             long t0 = System.currentTimeMillis();
             tracer.queryStart(sql);
             var arrowBuf = QueryResultCache.newBuffer();
-            String cacheTag = cachingProvider.executeToStream(sql, List.of(), user, arrowBuf);
+            BooleanSupplier cancelRequested = cancelFlag::get;
+            Duration queryTimeout = props.effectiveQueryTimeout();
+            String cacheTag = cachingProvider.executeToStream(sql, List.of(), user, arrowBuf, queryTimeout, cancelRequested);
             long rows = ArrowIpcRowWriter.writeRows(arrowBuf.toByteArray(), out);
             writeCommandComplete(out, "SELECT " + rows);
             tracer.queryEnd(sql, rows, System.currentTimeMillis() - t0, cacheTag);
@@ -551,6 +583,10 @@ final class PgWireSession implements Runnable {
                 }
                 if (maxRows != null && maxRows > 0) {
                     try { st.setMaxRows(maxRows); } catch (Exception ignored) {}
+                }
+                Duration timeout = props.effectiveQueryTimeout();
+                if (timeout != null) {
+                    try { st.setQueryTimeout((int) Math.max(1, timeout.getSeconds())); } catch (Exception ignored) {}
                 }
 
                 boolean hasResult = st.execute(sql);

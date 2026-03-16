@@ -21,6 +21,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.BooleanSupplier;
 
 /**
  * POC query-result cache for pgwire simple-query execution.
@@ -51,9 +52,14 @@ public final class PgWireQueryCachingExecutorProvider {
     /**
      * Executes a query to an OutputStream, using cache when possible.
      *
-     * @return cache source tag: "cache_local" or "miss" (for now)
+     * @param queryTimeout     optional per-query timeout; null means no limit
+     * @param cancelRequested  supplier polled during Arrow streaming; return true to abort
+     * @return cache source tag: "cache_local" or "miss"
      */
-    public String executeToStream(String sql, List<SqlParam> params, String userScope, OutputStream out) throws Exception {
+    public String executeToStream(String sql, List<SqlParam> params, String userScope, OutputStream out,
+                                  Duration queryTimeout, BooleanSupplier cancelRequested) throws Exception {
+        BooleanSupplier cancel = cancelRequested != null ? cancelRequested : () -> false;
+
         SqlDialectBridge bridge = new SqlDialectBridge(new SqlDialectBridgeOptions(
                 SourceDialect.POSTGRES,
                 ClientCompatibility.GENERIC_JDBC,
@@ -73,9 +79,10 @@ public final class PgWireQueryCachingExecutorProvider {
         if (!isDeterministic(translatedSql)) {
             try (Connection conn = dataSource.getConnection();
                  PreparedStatement ps = conn.prepareStatement(translatedSql)) {
+                applyTimeout(ps, queryTimeout);
                 bind(ps, translatedParams);
                 try (var allocator = new org.apache.arrow.memory.RootAllocator()) {
-                    org.iceforge.skadi.arrow.JdbcArrowStreamer.stream(ps, 1024, allocator, out, () -> false);
+                    org.iceforge.skadi.arrow.JdbcArrowStreamer.stream(ps, 1024, allocator, out, cancel);
                 }
             }
             return "miss";
@@ -98,9 +105,10 @@ public final class PgWireQueryCachingExecutorProvider {
 
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(translatedSql)) {
+            applyTimeout(ps, queryTimeout);
             bind(ps, translatedParams);
             try (var allocator = new org.apache.arrow.memory.RootAllocator()) {
-                org.iceforge.skadi.arrow.JdbcArrowStreamer.stream(ps, 1024, allocator, buffer, () -> false);
+                org.iceforge.skadi.arrow.JdbcArrowStreamer.stream(ps, 1024, allocator, buffer, cancel);
             }
         }
 
@@ -115,6 +123,14 @@ public final class PgWireQueryCachingExecutorProvider {
                 bridged.normalizedSqlForKey());
 
         return "miss";
+    }
+
+    private static void applyTimeout(PreparedStatement ps, Duration timeout) {
+        if (timeout == null) return;
+        long secs = timeout.getSeconds();
+        if (secs > 0) {
+            try { ps.setQueryTimeout((int) secs); } catch (Exception ignored) {}
+        }
     }
 
     private static boolean isDeterministic(String sql) {

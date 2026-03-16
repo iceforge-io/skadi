@@ -32,6 +32,12 @@ skadi:
       # If set, Skadi will call JDBC Statement#setFetchSize(fetchSize) before executing.
       # fetch-size: 1000
 
+      # Per-query execution timeout. 0 or omit for no limit.
+      # query-timeout: 5m
+
+      # Maximum concurrent queries per authenticated user. 0 or omit for unlimited.
+      # max-concurrent-queries-per-user: 10
+
     trace:
       enabled: false
       # testdata-path: testdata/tableau-traces
