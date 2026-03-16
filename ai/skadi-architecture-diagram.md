@@ -243,7 +243,7 @@ Skadi is best understood as five major concerns:
 1. **Scalability**  
    Multi-node deployment with shared cache and observability    
 
-This document should be read together with:  
+This document should be read together with:    
 - ai/system-map.md
 - ai/query-flow.md
 - ai/skadi-cache-architecture.md
