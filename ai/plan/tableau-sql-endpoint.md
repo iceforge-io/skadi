@@ -601,3 +601,24 @@ Patterns observed during A1–A8 implementation that required special handling:
 | **`SELECT 1` keepalives** | Handled inline; never reaches Databricks | Tableau uses this to test connection liveness |
 | **Prepared statement per dashboard sheet** | One Parse per query per sheet | A 5-sheet dashboard issues 5 Parse messages before any Execute |
 | **Describe before Bind** | Skadi sends a generic `RowDescription` with `TEXT` OID | Tableau uses describe to pre-allocate columns; `TEXT` type is safe for POC |
+
+---
+
+## 🔮 Future Direction (Out of Scope)
+
+A longer-term evolution where Skadi becomes a **native or hybrid SQL execution engine** is documented under:
+
+```
+ai/future-architecture-options/skadi-warehouse-lite/
+```
+
+This is explicitly **out of scope** for this plan.
+
+This plan focuses on:
+
+* Databricks-backed execution
+* SQL compatibility (PgWire/JDBC)
+* Caching and acceleration
+* Production hardening
+
+---

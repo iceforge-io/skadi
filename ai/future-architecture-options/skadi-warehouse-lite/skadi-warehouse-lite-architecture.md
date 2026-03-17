@@ -1,3 +1,32 @@
+## ⚠️ Status: Future Architecture Option
+
+* **Status:** Proposed (NOT ACTIVE IMPLEMENTATION)
+* **Horizon:** Medium → Long Term
+* **Part of Current Roadmap:** ❌ No
+* **Related Current Work:** Tableau SQL Endpoint (Databricks-backed)
+
+### Dependencies
+
+This direction should only be considered after:
+
+* Stable PgWire/JDBC endpoint
+* Proven cache correctness model
+* Arrow streaming maturity
+* Observability + metrics
+* Security & authentication implemented
+
+### Trigger for Adoption
+
+* Need to reduce Databricks compute cost significantly
+* High cache hit ratios observed
+* Repeated BI workloads dominate usage
+* Desire to control execution layer
+
+---
+
+> This document describes a **possible future evolution**, not current behavior.
+
+
 # Skadi Warehouse Lite — Detailed Architecture
 
 ## Architecture Goal

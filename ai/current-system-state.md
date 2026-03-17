@@ -305,3 +305,20 @@ None of this is fully in place. The S3 tier exists in `skadi-server` and is unre
 | L11 | `JdbcArrowStreamer` duplicated | Independent copies in `skadi-core` and `skadi-server`; changes diverge. |
 | L12 | ~~`PgWireRowSetCache` dead code~~ | **Fixed (B3):** `PgWireRowSetCache` + wiring + bridge + tests deleted. |
 | L13 | `ai/query-flow.md` missing | Referenced in `ai/claude-instructions.md`; file does not exist. |
+
+---
+
+## 🔮 Future Evolution
+
+Future architectural directions (including a potential cache-aware SQL engine) are documented in:
+
+```
+ai/future-architecture-options/
+```
+
+These **do NOT describe the current system** and should not be used as implementation guidance unless explicitly directed.
+
+Current system remains:
+
+* Databricks-backed execution
+* Skadi as caching + SQL gateway layer
