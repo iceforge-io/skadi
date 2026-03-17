@@ -27,8 +27,21 @@ public record SqlGatewayProperties(
             int port,
             Auth auth,
             Integer maxRows,
-            Integer fetchSize
+            Integer fetchSize,
+            Duration queryTimeout,
+            Integer maxConcurrentQueriesPerUser
     ) {
+        /** Effective query timeout; null means no limit. */
+        public Duration effectiveQueryTimeout() {
+            return (queryTimeout == null || queryTimeout.isNegative() || queryTimeout.isZero())
+                    ? null : queryTimeout;
+        }
+
+        /** 0 or negative means unlimited. */
+        public int effectiveMaxConcurrentQueriesPerUser() {
+            return (maxConcurrentQueriesPerUser == null || maxConcurrentQueriesPerUser <= 0)
+                    ? 0 : maxConcurrentQueriesPerUser;
+        }
         public record Auth(
                 String mode,
                 String credentialStore,                      // "plaintext" (default) | "bcrypt"

@@ -23,7 +23,7 @@ class CancelRequestTest {
         SqlGatewayProperties.PgWire.Auth auth =
                 new SqlGatewayProperties.PgWire.Auth("trust", null, Map.of(), null);
         SqlGatewayProperties.PgWire props =
-                new SqlGatewayProperties.PgWire(true, "127.0.0.1", 0, auth, null, null);
+                new SqlGatewayProperties.PgWire(true, "127.0.0.1", 0, auth, null, null, null, null);
 
         try (PgWireServer server = new PgWireServer(props, null, null, null)) {
             server.start();

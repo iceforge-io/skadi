@@ -575,10 +575,11 @@ event=query_end session_id=a3f1b2c4e5d6 fingerprint=8c3d1a2f rows=1000 latency_m
 | **Cache scope** | Local in-memory only. Restarts clear the cache. No S3/distributed tier yet. See B5 / Cache Layer epic. |
 | **Cache policy** | Exact-match on normalized SQL + username. Queries with different literal values (e.g. different date filters) are separate cache entries. |
 | **Metadata** | Synthetic `information_schema` facade. Schema/table/column lists are statically configured via `dbx-catalog`/`dbx-schema`; not dynamically fetched per-request. |
-| **Cancellation** | Databricks query cancellation is best-effort; no guaranteed end-to-end cancel propagation. See B2. |
+| **Cancellation** | `CancelRequest` handled (B2 complete): `Statement.cancel()` + Arrow stream abort via cancel flag. Best-effort — driver support varies. |
 | **Row limits** | `max-rows` is advisory — set in JDBC `setMaxRows()`, not enforced at SQL level. |
 | **Timestamps** | Sent as text using Java `toString()`. UTC assumed. Timezone-aware columns pass through as-is. Test timezone edges before prod. |
-| **Concurrency** | No per-user concurrency caps. One active session consumes one JDBC connection from the pool. See B2. |
+| **Concurrency** | Per-user concurrency cap available (B2 complete): set `pgwire.max-concurrent-queries-per-user`. Default: unlimited. |
+| **Query timeout** | Per-query timeout available (B2 complete): set `pgwire.query-timeout` (e.g. `5m`). Applied via `setQueryTimeout()` on JDBC path. |
 | **Protocol completeness** | Extended query protocol is a minimal subset (Parse/Bind/Describe/Execute/Sync). Edge cases may appear with non-Tableau JDBC clients. See B3. |
 
 ---

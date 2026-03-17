@@ -32,6 +32,7 @@ public class PgWireServer implements AutoCloseable {
     private final SqlGatewayProperties.Trace traceProps;
     private final SqlGatewayProperties.Metadata metadataProps;
     private final SessionRegistry sessionRegistry = new SessionRegistry();
+    private final QueryGovernor queryGovernor;
     private final ExecutorService acceptor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "pgwire-acceptor");
         t.setDaemon(true);
@@ -59,6 +60,7 @@ public class PgWireServer implements AutoCloseable {
         this.cacheProps = cacheProps;     // nullable
         this.traceProps = traceProps;     // nullable
         this.metadataProps = metadataProps; // nullable
+        this.queryGovernor = new QueryGovernor(props.effectiveMaxConcurrentQueriesPerUser());
     }
 
     public void start() throws IOException {
@@ -81,7 +83,7 @@ public class PgWireServer implements AutoCloseable {
                     s.setTcpNoDelay(true);
                     s.setSoTimeout((int) Duration.ofMinutes(5).toMillis());
                     sessions.submit(new PgWireSession(s, props, cacheProps, traceProps,
-                            metadataProps, sessionRegistry));
+                            metadataProps, sessionRegistry, queryGovernor));
                 } catch (java.net.SocketTimeoutException expected) {
                     // Normal when we set SO_TIMEOUT so we can check `running` regularly.
                 } catch (IOException e) {
