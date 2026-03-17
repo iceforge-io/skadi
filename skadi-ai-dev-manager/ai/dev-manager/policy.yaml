@@ -1,0 +1,60 @@
+version: 1
+
+project:
+  name: "Skadi - Platform Roadmap"
+  repository: "iceforge-io/skadi"
+
+status:
+  ready: "Ready"
+  in_progress: "In Progress"
+  pr_open: "PR Open"
+  merged: "Merged"
+
+required_fields:
+  - Status
+  - Module
+  - Priority
+  - Lane
+  - Risk Level
+  - Concurrency Group
+  - AI Eligibility
+
+ai_eligibility:
+  allowed: ["Eligible"]
+
+concurrency_groups:
+  - sql-protocol
+  - metadata-contracts
+  - jdbc-executor
+  - rowset-cache
+  - query-cancellation
+  - build-structure
+  - dependency-management
+  - test-harness
+  - docs-only
+
+hot_zones:
+  serialized_paths:
+    - pom.xml
+    - skadi-sql-gateway/**/pgwire/**
+    - skadi-sql-gateway/**/metadata/**
+    - skadi-core/**/cache/**
+
+concurrency_policy:
+  deny_same_group: true
+  deny_serialized: true
+  allow_docs_parallel: true
+
+worker:
+  retry_limit: 1
+  heartbeat_timeout_minutes: 15
+
+branch:
+  pattern: "{prefix}/{issue}-{slug}"
+
+worktree:
+  root: "../worktrees"
+
+pr:
+  auto_open: true
+  require_review: true
