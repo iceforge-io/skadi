@@ -8,6 +8,9 @@ import org.iceforge.skadi.sqlgateway.cache.QueryCacheKey;
 import org.iceforge.skadi.sqlgateway.cache.QueryCacheMetrics;
 import org.iceforge.skadi.sqlgateway.cache.QueryResultCache;
 import org.iceforge.skadi.sqlgateway.config.SqlGatewayProperties;
+import org.iceforge.skadi.sqlgateway.dialect.SqlDialectBridge;
+import org.iceforge.skadi.sqlgateway.dialect.SqlDialectBridgeOptions;
+import org.iceforge.skadi.sqlgateway.executor.SqlParam;
 import org.iceforge.skadi.sqlgateway.metadata.MetadataCache;
 import org.iceforge.skadi.sqlgateway.metadata.MetadataQueryRouter;
 import org.iceforge.skadi.sqlgateway.metadata.MetadataRowSet;
@@ -27,6 +30,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
@@ -79,6 +83,10 @@ final class PgWireSession implements Runnable {
     private String lastStatementName;
     private String lastPortalName;
     private boolean portalHasResult;
+    // Param type OIDs declared in Parse ('P'); 0 = unspecified.
+    private int[] lastParamTypeOids = new int[0];
+    // Bound parameter values from the most recent Bind ('B') message.
+    private List<SqlParam> lastBoundParams = List.of();
 
     // Active JDBC Statement; stored so a CancelRequest from another connection can interrupt it.
     private volatile Statement activeStatement;
@@ -262,6 +270,16 @@ final class PgWireSession implements Runnable {
                     this.lastStatementName = readCString(mb);
                     String sql = readCString(mb);
                     this.lastPreparedSql = sql;
+                    this.lastBoundParams = List.of(); // reset on new statement
+                    // Read declared parameter type OIDs: int16 count + int32[] OIDs (0 = unspecified).
+                    if (mb.remaining() >= 2) {
+                        int count = mb.getShort() & 0xFFFF;
+                        int[] oids = new int[count];
+                        for (int i = 0; i < count && mb.remaining() >= 4; i++) oids[i] = mb.getInt();
+                        this.lastParamTypeOids = oids;
+                    } else {
+                        this.lastParamTypeOids = new int[0];
+                    }
                     tracer.statementParsed(sql);
                     writeParseComplete(out);
                     out.flush();
@@ -273,6 +291,7 @@ final class PgWireSession implements Runnable {
                     this.lastPortalName = readCString(mb);
                     readCString(mb); // statement name (ignored, we only keep last)
                     this.portalHasResult = guessHasResult(this.lastPreparedSql);
+                    this.lastBoundParams = parseBindParams(mb);
                     writeBindComplete(out);
                     out.flush();
                     continue;
@@ -285,7 +304,8 @@ final class PgWireSession implements Runnable {
 
                     // JDBC expects ParameterDescription before RowDescription/NoData.
                     if (what == 'S' || what == 'P') {
-                        writeParameterDescription(out, new int[0]);
+                        // Emit accurate param count (OIDs reported as 0 = unspecified).
+                        writeParameterDescription(out, new int[lastParamTypeOids.length]);
                     }
 
                     if (what == 'S') {
@@ -384,8 +404,8 @@ final class PgWireSession implements Runnable {
             return;
         }
 
-        // Default: reuse simple handlers (which may return command complete / error).
-        handleSimpleQuery(out, s);
+        // Forward bound parameters from the most recent Bind message.
+        handleSimpleQuery(out, s, this.lastBoundParams);
     }
 
     private static boolean guessHasResult(String sql) {
@@ -394,7 +414,12 @@ final class PgWireSession implements Runnable {
         return lower.startsWith("select") || lower.startsWith("show") || lower.startsWith("with") || lower.startsWith("values");
     }
 
+    /** Simple Query ('Q') path — always zero parameters. */
     private void handleSimpleQuery(DataOutputStream out, String sql) throws IOException {
+        handleSimpleQuery(out, sql, List.of());
+    }
+
+    private void handleSimpleQuery(DataOutputStream out, String sql, List<SqlParam> params) throws IOException {
         String s = sql == null ? "" : sql.trim();
         if (s.isEmpty()) {
             writeEmptyQueryResponse(out);
@@ -471,7 +496,7 @@ final class PgWireSession implements Runnable {
         SqlExecutorProvider executorProvider = SqlExecutorProviderHolder.get();
         if (executorProvider != null) {
             try {
-                streamJdbcQueryWithCaching(out, executorProvider, s);
+                streamJdbcQueryWithCaching(out, executorProvider, s, params);
                 return;
             } catch (Exception e) {
                 tracer.queryError(s, "XX000", e.getMessage());
@@ -515,7 +540,8 @@ final class PgWireSession implements Runnable {
                 .toList();
     }
 
-    private void streamJdbcQueryWithCaching(DataOutputStream out, SqlExecutorProvider executorProvider, String sql) throws Exception {
+    private void streamJdbcQueryWithCaching(DataOutputStream out, SqlExecutorProvider executorProvider,
+                                            String sql, List<SqlParam> params) throws Exception {
         // Enforce per-user concurrency limit.
         if (governor != null && !governor.tryAcquire(user)) {
             writeError(out, "53300", "too many concurrent queries for user: " + user);
@@ -523,13 +549,14 @@ final class PgWireSession implements Runnable {
         }
         try {
             cancelFlag.set(false);
-            streamJdbcQueryWithCachingInner(out, executorProvider, sql);
+            streamJdbcQueryWithCachingInner(out, executorProvider, sql, params);
         } finally {
             if (governor != null) governor.release(user);
         }
     }
 
-    private void streamJdbcQueryWithCachingInner(DataOutputStream out, SqlExecutorProvider executorProvider, String sql) throws Exception {
+    private void streamJdbcQueryWithCachingInner(DataOutputStream out, SqlExecutorProvider executorProvider,
+                                                  String sql, List<SqlParam> params) throws Exception {
         // Path 3: Arrow-based caching with SQL dialect translation (preferred when configured).
         PgWireQueryCachingExecutorProvider cachingProvider = PgWireSessionCachingBridge.get();
         if (cachingProvider != null && guessHasResult(sql)) {
@@ -538,14 +565,51 @@ final class PgWireSession implements Runnable {
             var arrowBuf = QueryResultCache.newBuffer();
             BooleanSupplier cancelRequested = cancelFlag::get;
             Duration queryTimeout = props.effectiveQueryTimeout();
-            String cacheTag = cachingProvider.executeToStream(sql, List.of(), user, arrowBuf, queryTimeout, cancelRequested);
+            // Pass bound params (L1 fix: was always List.of() before).
+            String cacheTag = cachingProvider.executeToStream(sql, params, user, arrowBuf, queryTimeout, cancelRequested);
             long rows = ArrowIpcRowWriter.writeRows(arrowBuf.toByteArray(), out);
             writeCommandComplete(out, "SELECT " + rows);
             tracer.queryEnd(sql, rows, System.currentTimeMillis() - t0, cacheTag);
             return;
         }
 
-        // Path 1 fallback: direct JDBC with text-row caching (no dialect translation).
+        // Path 1a: parameterised query — rewrite $n→? via dialect bridge and use PreparedStatement.
+        // Caching is skipped here because path-1 cache key does not include parameters.
+        if (!params.isEmpty()) {
+            tracer.queryStart(sql);
+            long t0 = System.currentTimeMillis();
+            var bridged = new SqlDialectBridge(SqlDialectBridgeOptions.defaultForPgWire()).bridge(sql, params);
+            String preparedSql = bridged.translatedSql();
+            List<SqlParam> jdbcParams = bridged.translatedParams();
+
+            try (Connection conn = executorProvider.getConnection();
+                 PreparedStatement ps = conn.prepareStatement(preparedSql)) {
+                this.activeStatement = ps;
+                try {
+                    applyConnectionContext(conn);
+                    applyStatementLimits(ps);
+                    bindParams(ps, jdbcParams);
+                    boolean hasResult = ps.execute();
+                    if (!hasResult) {
+                        writeCommandComplete(out, "OK");
+                        tracer.queryEnd(sql, 0, System.currentTimeMillis() - t0, "SKIP");
+                        return;
+                    }
+                    try (ResultSet rs = ps.getResultSet()) {
+                        ResultSetMetaData md = rs.getMetaData();
+                        writeRowDescription(out, md);
+                        long rows = streamRows(out, rs, md.getColumnCount());
+                        writeCommandComplete(out, "SELECT " + rows);
+                        tracer.queryEnd(sql, rows, System.currentTimeMillis() - t0, "SKIP");
+                    }
+                } finally {
+                    this.activeStatement = null;
+                }
+            }
+            return;
+        }
+
+        // Path 1b fallback: direct JDBC with text-row caching (no dialect translation, zero params).
         boolean cacheEnabled = cacheProps != null && cacheProps.isEnabled() && guessHasResult(sql);
 
         if (cacheEnabled) {
@@ -563,8 +627,6 @@ final class PgWireSession implements Runnable {
         }
         tracer.queryStart(sql);
 
-        Integer fetchSize = props.fetchSize();
-        Integer maxRows = props.maxRows();
         long t0 = System.currentTimeMillis();
 
         try (Connection conn = executorProvider.getConnection();
@@ -574,20 +636,8 @@ final class PgWireSession implements Runnable {
             this.activeStatement = st;
 
             try {
-                // Propagate Skadi identity to Databricks query history.
-                try { conn.setClientInfo("ApplicationName", "skadi-sql-gateway"); } catch (Exception ignored) {}
-                try { conn.setClientInfo("User", user); } catch (Exception ignored) {}
-
-                if (fetchSize != null && fetchSize > 0) {
-                    try { st.setFetchSize(fetchSize); } catch (Exception ignored) {}
-                }
-                if (maxRows != null && maxRows > 0) {
-                    try { st.setMaxRows(maxRows); } catch (Exception ignored) {}
-                }
-                Duration timeout = props.effectiveQueryTimeout();
-                if (timeout != null) {
-                    try { st.setQueryTimeout((int) Math.max(1, timeout.getSeconds())); } catch (Exception ignored) {}
-                }
+                applyConnectionContext(conn);
+                applyStatementLimits(st);
 
                 boolean hasResult = st.execute(sql);
                 if (!hasResult) {
@@ -640,6 +690,100 @@ final class PgWireSession implements Runnable {
             } finally {
                 this.activeStatement = null;
             }
+        }
+    }
+
+    /** Streams ResultSet rows to the client; returns the row count. */
+    private long streamRows(DataOutputStream out, ResultSet rs, int colCount) throws Exception {
+        long rows = 0;
+        final int flushEvery = 256;
+        while (rs.next()) {
+            String[] row = new String[colCount];
+            for (int i = 1; i <= colCount; i++) {
+                Object v = rs.getObject(i);
+                row[i - 1] = (v == null) ? null : v.toString();
+            }
+            PgRowWriter.writeDataRow(out, row);
+            rows++;
+            if (rows % flushEvery == 0) out.flush();
+        }
+        return rows;
+    }
+
+    private void applyConnectionContext(Connection conn) {
+        try { conn.setClientInfo("ApplicationName", "skadi-sql-gateway"); } catch (Exception ignored) {}
+        try { conn.setClientInfo("User", user); } catch (Exception ignored) {}
+    }
+
+    private void applyStatementLimits(Statement st) {
+        Integer fetchSize = props.fetchSize();
+        Integer maxRows = props.maxRows();
+        if (fetchSize != null && fetchSize > 0) {
+            try { st.setFetchSize(fetchSize); } catch (Exception ignored) {}
+        }
+        if (maxRows != null && maxRows > 0) {
+            try { st.setMaxRows(maxRows); } catch (Exception ignored) {}
+        }
+        Duration timeout = props.effectiveQueryTimeout();
+        if (timeout != null) {
+            try { st.setQueryTimeout((int) Math.max(1, timeout.getSeconds())); } catch (Exception ignored) {}
+        }
+    }
+
+    private static void bindParams(PreparedStatement ps, List<SqlParam> params) throws Exception {
+        for (SqlParam p : params) {
+            if (p.value() == null) {
+                if (p.jdbcType() != null) ps.setNull(p.index(), p.jdbcType());
+                else ps.setObject(p.index(), null);
+            } else {
+                ps.setObject(p.index(), p.value());
+            }
+        }
+    }
+
+    /**
+     * Parses bind parameter values from the remainder of a Bind ('B') message buffer.
+     *
+     * <p>Format codes: 0 = text (default), 1 = binary. Binary params are decoded as UTF-8
+     * text for now — full binary-format decoding is a TODO per protocol spec.
+     */
+    private static List<SqlParam> parseBindParams(ByteBuffer mb) {
+        try {
+            if (!mb.hasRemaining()) return List.of();
+
+            int numFormatCodes = mb.getShort() & 0xFFFF;
+            int[] formatCodes = new int[numFormatCodes];
+            for (int i = 0; i < numFormatCodes; i++) formatCodes[i] = mb.getShort() & 0xFFFF;
+
+            if (!mb.hasRemaining()) return List.of();
+            int numParams = mb.getShort() & 0xFFFF;
+            if (numParams == 0) return List.of();
+
+            List<SqlParam> result = new ArrayList<>(numParams);
+            for (int i = 0; i < numParams; i++) {
+                if (mb.remaining() < 4) break;
+                int paramLen = mb.getInt();
+                if (paramLen == -1) {
+                    result.add(new SqlParam(i + 1, null, null)); // SQL NULL
+                } else {
+                    if (mb.remaining() < paramLen) break;
+                    byte[] bytes = new byte[paramLen];
+                    mb.get(bytes);
+                    // Resolve format: global (1 code), per-param, or default text.
+                    int fmt = numFormatCodes == 0 ? 0
+                            : numFormatCodes == 1 ? formatCodes[0]
+                            : (i < formatCodes.length ? formatCodes[i] : 0);
+                    if (fmt == 1) {
+                        // TODO: binary-format decoding per type OID; treat as text for now
+                        log.warn("Binary-format bind param {} received; falling back to text decode", i + 1);
+                    }
+                    result.add(new SqlParam(i + 1, null, new String(bytes, StandardCharsets.UTF_8)));
+                }
+            }
+            return result;
+        } catch (Exception e) {
+            log.warn("Failed to parse Bind message parameters: {}", e.getMessage());
+            return List.of();
         }
     }
 
