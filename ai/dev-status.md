@@ -1,9 +1,9 @@
 # Skadi — Development Status
 
-> Updated: 2026-03-15
+> Updated: 2026-05-12
 > Branch: `main`
-> Last commit: `c290e32`
-> Build: ✅ 115 tests passing
+> Last commit: pending
+> Build: ✅ 118 tests passing
 
 ---
 
@@ -29,7 +29,7 @@
 |---|---|---|---|---|
 | B1 | Auth & authorisation (enterprise-ready) | ✅ Done | `adda9fd` | trust / plaintext / bcrypt + schema ACL |
 | B2 | Cancellation, timeouts, resource controls | ✅ Done | `5c07c1b` | See below |
-| B3 | Protocol completeness for JDBC ecosystem | ⚠️ Partial | `90f4a0b` | Bind params still discarded (L1); rest improved |
+| B3 | Protocol completeness for JDBC ecosystem | ✅ Done | pending | L1 fixed: Bind params parsed + forwarded to both execution paths |
 | B4 | Correctness test suite (golden results) | ❌ Not started | — | |
 | B5 | Observability — metrics, tracing, dashboards | ❌ Not started | — | Hit/miss counters only |
 | B6 | Security hardening — TLS, redaction, audit log | ❌ Not started | — | Plaintext credentials on wire |
@@ -64,10 +64,10 @@
 
 ---
 
-## B3 Partial Implementation Summary
+## B3 Implementation Summary
 
-**Commit:** `90f4a0b`
-**Issue:** #25 (open)
+**Commits:** `90f4a0b` (partial), pending (L1 fix)
+**Issue:** #25 (closed)
 
 ### Completed
 - `MetadataQueryRouter` extended: `pg_catalog.pg_namespace/database/type/proc/class/attribute/roles`, `current_database()`, `current_schema()`, `current_user`, `session_user`
@@ -77,11 +77,14 @@
 - `SHOW` handler extended: `server_version_num`, `transaction_isolation`, `search_path`, `max_connections`, `integer_datetimes`, `intervalstyle`, `application_name`, `in_hot_standby`
 - Dead code removed: `PgWireRowSetCache`, `PgWireRowSetCacheWiring`, `PgWireSessionRowSetCacheBridge`
 - Metadata config wired from `SqlGatewayProperties.Metadata` (fixes L7)
-
-### Still open (L1)
-- Bind parameter values from `Bind (B)` message are discarded
-- Parameterised queries execute with literal `$1`/`$2` markers reaching Databricks
-- Affects Tableau extended-query data fetches with filter parameters
+- **L1 fixed**: `Bind (B)` message parameter values fully parsed + stored as `List<SqlParam>`
+  - Format codes (text/binary) honoured; binary params fall back to UTF-8 with a warning
+  - Path 3 (Arrow + caching): params forwarded to `executeToStream()` — `SqlDialectBridge` rewrites `$n→?` and binds via `PreparedStatement`
+  - Path 1 (JDBC fallback): when params present, `SqlDialectBridge` rewrites SQL, `PreparedStatement` used — path-1 cache bypassed (cache key doesn't include params)
+  - Parse (`P`) message param type OID count stored → `ParameterDescription` now reports accurate param count
+  - `applyConnectionContext`, `applyStatementLimits`, `bindParams` extracted as helpers
+  - `streamRows` extracted to avoid duplication between Statement/PreparedStatement paths
+- Tests: `ExtendedQueryParameterTest` (3 raw-protocol cases: text params, null param, zero params)
 
 ---
 
@@ -89,8 +92,7 @@
 
 | # | Area | Detail |
 |---|---|---|
-| L1 | Bind parameters discarded | `Bind (B)` parameter values silently dropped; `$n` markers reach Databricks |
-| L2 | Dialect bridge bypassed on path 1 | Path 1 sends raw client SQL; PG-specific syntax may fail on Databricks |
+| L2 | Dialect bridge bypassed on path 1 (zero-param) | Path 1b sends raw client SQL; PG-specific syntax may fail on Databricks |
 | L3 | Dataset version absent from cache keys | Stale results if upstream data refreshes within TTL |
 | L5 | Cache config split | `SqlGatewayProperties.Cache` and `CacheProperties` bind same YAML prefix; fields silently ignored |
 | L6 | Static cache singletons ignore Spring config | `QUERY_CACHE` ignores `maxEntries`; `METADATA_CACHE` ignores `Metadata.ttl` |
@@ -98,20 +100,19 @@
 | L10 | Gateway is not thin | Embeds own JDBC pool + cache instead of delegating to `skadi-server` |
 | L11 | `JdbcArrowStreamer` duplicated | Independent copies in `skadi-core` and `skadi-server` |
 | L13 | `ai/query-flow.md` missing | Referenced in `ai/claude-instructions.md`; file does not exist |
+| L14 | Execute sends RowDescription when Describe already did | Extended-query flow: server emits RowDescription in Execute response even after Describe(S/P) was answered. JDBC drivers that send Describe (DBeaver, DataGrip) may see duplicate `T` messages; Tableau (no Describe) is unaffected |
+| L15 | Bind binary-format params not decoded | Binary-format (`fmt=1`) bind params decoded as UTF-8 text with a warning; correct decoding requires type OID dispatch |
 
 ---
 
 ## Next Recommended Issue
 
-**B3 — Protocol completeness (L1: Bind parameter values)**
+**B4 — Correctness test suite (golden results)**
 
-The single highest-value remaining B3 item. Tableau uses the extended-query protocol (`Parse → Bind → Execute`) for all data queries, and the `Bind (B)` message carries parameter values (`$1`, `$2`, …) that are currently discarded. This means:
-- Any Tableau filter that produces a parameterised query silently sends literal markers to Databricks, causing execution errors or wrong results
-- All other B3 work (metadata compat, cancel, SHOW extensions) is done
+B3 is now complete. The next high-value story is B4: a correctness test suite that validates query results against known-good data. This requires:
+1. A seeded test dataset in Databricks (or H2 for unit tests)
+2. Golden-result snapshots for common Tableau query patterns
+3. Integration tests that run the full gateway pipeline and compare results
 
-**Scope of L1 fix:**
-1. Parse the `Bind (B)` message format codes + parameter bytes
-2. Store bound values alongside `lastPreparedSql`
-3. Pass them as `List<SqlParam>` into `streamJdbcQueryWithCaching()`; path 3 already accepts `List<SqlParam>` via `executeToStream()`; path 1 needs `PreparedStatement` + `ps.setObject()` instead of `Statement.execute()`
-4. Update `ParameterMarkerRewriter` to reindex `$n` → `?` (already exists in `dialect` package)
-5. Add integration test: parameterised query via extended-query protocol
+**Alternative: L14 — Fix Execute/Describe RowDescription duplication**
+Resolving L14 would unlock DBeaver and DataGrip compatibility via extended-query mode, without needing a Databricks connection for test coverage. Scope: track `portalDescribed` flag; skip RowDescription in Execute response when Describe was already answered.
