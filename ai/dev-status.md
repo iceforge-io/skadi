@@ -1,9 +1,9 @@
 # Skadi — Development Status
 
 > Updated: 2026-05-12
-> Branch: `feature/tableau-sql-endpoint-b3-protocol-completeness` → PR #31
-> Last commit: `0243425`
-> Build: ✅ 118 tests passing
+> Branch: `main` (B4 uncommitted)
+> Last commit: `1583ee8`
+> Build: ✅ 154 tests passing
 
 ---
 
@@ -30,7 +30,7 @@
 | B1 | Auth & authorisation (enterprise-ready) | ✅ Done | `adda9fd` | trust / plaintext / bcrypt + schema ACL |
 | B2 | Cancellation, timeouts, resource controls | ✅ Done | `5c07c1b` | See below |
 | B3 | Protocol completeness for JDBC ecosystem | ✅ Done | `0243425` (PR #31) | L1 fixed: Bind params parsed + forwarded to both execution paths |
-| B4 | Correctness test suite (golden results) | 🔜 Next | — | |
+| B4 | Correctness test suite (golden results) | ✅ Done | pending | 36 tests; 2 bugs fixed in Arrow/path-1 value rendering |
 | B5 | Observability — metrics, tracing, dashboards | ❌ Not started | — | Hit/miss counters only |
 | B6 | Security hardening — TLS, redaction, audit log | ❌ Not started | — | Plaintext credentials on wire |
 | B7 | Tableau Server / Cloud deployment readiness | ❌ Not started | — | Local dev only |
@@ -105,14 +105,47 @@
 
 ---
 
+## B4 Implementation Summary
+
+**Issue:** #26
+**Build:** 154 tests, 0 failures (36 new tests added)
+
+### Bugs fixed
+
+| Bug | File | Detail |
+|---|---|---|
+| Arrow timestamp rendered as epoch millis | `ArrowIpcRowWriter.java` | `TimeStampMilliVector.getObject()` returns `Long`; now rendered via `LocalDateTime.ofInstant(…, ZoneId.systemDefault())` |
+| Arrow date rendered as epoch days | `ArrowIpcRowWriter.java` | `DateDayVector.getObject()` returns `Integer`; now rendered via `LocalDate.ofEpochDay()` |
+| Path 1 timestamp trailing `.0` | `PgWireSession.java` | `Timestamp.toString()` produces `"2021-06-15 12:30:00.0"`; replaced with `renderJdbcValue()` using `Timestamp.toLocalDateTime()` |
+
+### Test classes added
+
+| Class | Tests | What it covers |
+|---|---|---|
+| `ValueEncodingArrowTest` | 8 | Arrow IPC → pgwire text rendering; timestamp, date, decimal, null, bigint |
+| `NullSemanticsTest` | 4 | SQL NULL arrives as Java `null`; `wasNull()` returns true |
+| `DecimalCorrectnessTest` | 5 | Scale preserved; negative sign; zero; small fractional; inline CAST |
+| `TimestampFormattingTest` | 5 | No trailing `.0`; ISO format; epoch-zero renders as date not number |
+| `TypeOidCorrectnessTest` | 8 | OID round-trip: BIGINT→20, INTEGER→23, NUMERIC→1700, DATE→1082, TIMESTAMP→1114, etc. |
+| `OrderingLimitTest` | 6 | ASC/DESC order; LIMIT; LIMIT+OFFSET; string collation |
+
+### Infrastructure
+
+- `GatewayCorrectnessHarness`: shared H2-backed PgWireServer; trust auth; cache disabled; simple-query mode
+- Golden results are inline expected values in each test (not snapshot files)
+- No Databricks connection required — all 154 tests pass in CI
+
+### Note on timezone (Arrow path)
+
+`TIMESTAMP` (no TZ) round-trips through `ZoneId.systemDefault()` — consistent with JDBC's `Timestamp.toLocalDateTime()`. Both paths now produce identical output regardless of JVM timezone offset.
+
+---
+
 ## Next Recommended Issue
 
-**B4 — Correctness test suite (golden results)**
+**B5 — Observability (production-grade metrics)**
 
-B3 is now complete. The next high-value story is B4: a correctness test suite that validates query results against known-good data. This requires:
-1. A seeded test dataset in Databricks (or H2 for unit tests)
-2. Golden-result snapshots for common Tableau query patterns
-3. Integration tests that run the full gateway pipeline and compare results
+B4 is complete. Next: Prometheus/Micrometer counters for cache hit/miss, query latency, active session count, and error rates. Scope: wire `QueryCacheMetrics` and `QueryResultCacheMetrics` into Micrometer; expose via `/actuator/prometheus`.
 
 **Alternative: L14 — Fix Execute/Describe RowDescription duplication**
-Resolving L14 would unlock DBeaver and DataGrip compatibility via extended-query mode, without needing a Databricks connection for test coverage. Scope: track `portalDescribed` flag; skip RowDescription in Execute response when Describe was already answered.
+Scope: track `portalDescribed` flag; skip RowDescription in Execute response when Describe already answered. Unlocks DBeaver/DataGrip extended-query mode.

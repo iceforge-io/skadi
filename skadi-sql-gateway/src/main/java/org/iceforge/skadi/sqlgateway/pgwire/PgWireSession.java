@@ -35,8 +35,10 @@ import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Duration;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -670,8 +672,7 @@ final class PgWireSession implements Runnable {
                     while (rs.next()) {
                         String[] row = new String[colCount];
                         for (int i = 1; i <= colCount; i++) {
-                            Object v = rs.getObject(i);
-                            row[i - 1] = (v == null) ? null : v.toString();
+                            row[i - 1] = renderJdbcValue(rs.getObject(i));
                         }
                         PgRowWriter.writeDataRow(out, row);
                         rows++;
@@ -700,14 +701,30 @@ final class PgWireSession implements Runnable {
         while (rs.next()) {
             String[] row = new String[colCount];
             for (int i = 1; i <= colCount; i++) {
-                Object v = rs.getObject(i);
-                row[i - 1] = (v == null) ? null : v.toString();
+                row[i - 1] = renderJdbcValue(rs.getObject(i));
             }
             PgRowWriter.writeDataRow(out, row);
             rows++;
             if (rows % flushEvery == 0) out.flush();
         }
         return rows;
+    }
+
+    private static final DateTimeFormatter TIMESTAMP_FMT =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
+    /**
+     * Renders a JDBC value as a pgwire text-format string.
+     *
+     * <p>{@link Timestamp#toString()} appends trailing ".0" for whole-second values;
+     * rendering via LocalDateTime avoids that and produces a consistent ISO-like format.
+     */
+    static String renderJdbcValue(Object v) {
+        if (v == null) return null;
+        if (v instanceof Timestamp ts) {
+            return ts.toLocalDateTime().format(TIMESTAMP_FMT);
+        }
+        return v.toString();
     }
 
     private void applyConnectionContext(Connection conn) {
