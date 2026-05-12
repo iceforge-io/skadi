@@ -1,8 +1,8 @@
 # Skadi — Development Status
 
 > Updated: 2026-05-12
-> Branch: `main`
-> Last commit: pending
+> Branch: `feature/tableau-sql-endpoint-b3-protocol-completeness` → PR #31
+> Last commit: `0243425`
 > Build: ✅ 118 tests passing
 
 ---
@@ -29,8 +29,8 @@
 |---|---|---|---|---|
 | B1 | Auth & authorisation (enterprise-ready) | ✅ Done | `adda9fd` | trust / plaintext / bcrypt + schema ACL |
 | B2 | Cancellation, timeouts, resource controls | ✅ Done | `5c07c1b` | See below |
-| B3 | Protocol completeness for JDBC ecosystem | ✅ Done | pending | L1 fixed: Bind params parsed + forwarded to both execution paths |
-| B4 | Correctness test suite (golden results) | ❌ Not started | — | |
+| B3 | Protocol completeness for JDBC ecosystem | ✅ Done | `0243425` (PR #31) | L1 fixed: Bind params parsed + forwarded to both execution paths |
+| B4 | Correctness test suite (golden results) | 🔜 Next | — | |
 | B5 | Observability — metrics, tracing, dashboards | ❌ Not started | — | Hit/miss counters only |
 | B6 | Security hardening — TLS, redaction, audit log | ❌ Not started | — | Plaintext credentials on wire |
 | B7 | Tableau Server / Cloud deployment readiness | ❌ Not started | — | Local dev only |
