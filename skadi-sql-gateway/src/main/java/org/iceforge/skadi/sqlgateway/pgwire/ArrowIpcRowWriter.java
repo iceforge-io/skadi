@@ -2,7 +2,9 @@ package org.iceforge.skadi.sqlgateway.pgwire;
 
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
+import org.apache.arrow.vector.DateDayVector;
 import org.apache.arrow.vector.FieldVector;
+import org.apache.arrow.vector.TimeStampMilliVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.ipc.ArrowStreamReader;
 import org.apache.arrow.vector.types.pojo.ArrowType;
@@ -13,6 +15,11 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 
@@ -55,7 +62,7 @@ final class ArrowIpcRowWriter {
                     String[] row = new String[fields.size()];
                     for (int c = 0; c < fields.size(); c++) {
                         FieldVector v = root.getVector(c);
-                        row[c] = v.isNull(r) ? null : formatValue(v.getObject(r));
+                        row[c] = v.isNull(r) ? null : formatValue(v, r);
                     }
                     PgRowWriter.writeDataRow(out, row);
                     rowCount++;
@@ -74,10 +81,27 @@ final class ArrowIpcRowWriter {
         }
     }
 
-    private static String formatValue(Object val) {
-        if (val == null) return null;
-        // Arrow Text wraps bytes; toString() returns the string correctly.
-        return val.toString();
+    private static final DateTimeFormatter TIMESTAMP_FMT =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
+    /**
+     * Renders an Arrow vector slot as a pgwire text-format string.
+     *
+     * <p>Timestamps and dates need special treatment: Arrow stores them as epoch millis /
+     * epoch days (integers) and {@code getObject().toString()} would produce a raw number.
+     */
+    private static String formatValue(FieldVector v, int r) {
+        if (v instanceof TimeStampMilliVector ts) {
+            // TIMESTAMP (no TZ) round-trips through the JVM default zone, consistent
+            // with JDBC Timestamp.toLocalDateTime() used on path 1.
+            return LocalDateTime.ofInstant(Instant.ofEpochMilli(ts.get(r)), ZoneId.systemDefault())
+                    .format(TIMESTAMP_FMT);
+        }
+        if (v instanceof DateDayVector d) {
+            return LocalDate.ofEpochDay(d.get(r)).toString(); // "yyyy-MM-dd"
+        }
+        Object obj = v.getObject(r);
+        return obj == null ? null : obj.toString();
     }
 
     private static void writeEmptyRowDescription(DataOutputStream out) throws IOException {

@@ -1,9 +1,9 @@
 # Skadi — Development Status
 
 > Updated: 2026-05-12
-> Branch: `feature/tableau-sql-endpoint-b3-protocol-completeness` → PR #31
-> Last commit: `0243425`
-> Build: ✅ 118 tests passing
+> Branch: `feature/tableau-sql-endpoint-b4-correctness-tests` → PR #32
+> Last commit: `ce47076`
+> Build: ✅ 154 tests passing
 
 ---
 
@@ -30,8 +30,8 @@
 | B1 | Auth & authorisation (enterprise-ready) | ✅ Done | `adda9fd` | trust / plaintext / bcrypt + schema ACL |
 | B2 | Cancellation, timeouts, resource controls | ✅ Done | `5c07c1b` | See below |
 | B3 | Protocol completeness for JDBC ecosystem | ✅ Done | `0243425` (PR #31) | L1 fixed: Bind params parsed + forwarded to both execution paths |
-| B4 | Correctness test suite (golden results) | 🔜 Next | — | |
-| B5 | Observability — metrics, tracing, dashboards | ❌ Not started | — | Hit/miss counters only |
+| B4 | Correctness test suite (golden results) | ✅ Done | `ce47076` (PR #32) | 36 tests; 2 bugs fixed in Arrow/path-1 value rendering |
+| B5 | Observability — metrics, tracing, dashboards | 🔜 Next | — | Hit/miss counters only |
 | B6 | Security hardening — TLS, redaction, audit log | ❌ Not started | — | Plaintext credentials on wire |
 | B7 | Tableau Server / Cloud deployment readiness | ❌ Not started | — | Local dev only |
 | B8 | MySQL wire-protocol endpoint (optional) | ❌ Not started | — | Dialect translator exists |
@@ -102,17 +102,67 @@
 | L13 | `ai/query-flow.md` missing | Referenced in `ai/claude-instructions.md`; file does not exist |
 | L14 | Execute sends RowDescription when Describe already did | Extended-query flow: server emits RowDescription in Execute response even after Describe(S/P) was answered. JDBC drivers that send Describe (DBeaver, DataGrip) may see duplicate `T` messages; Tableau (no Describe) is unaffected |
 | L15 | Bind binary-format params not decoded | Binary-format (`fmt=1`) bind params decoded as UTF-8 text with a warning; correct decoding requires type OID dispatch |
+| L16 | `SqlGatewayIT` placeholder still disabled | Real Databricks integration tests need CI secrets and a seeded test warehouse; currently placeholder only |
+| L17 | `TIMESTAMPTZ` Arrow path not tested | `TimeStampMilliTZVector` codepath not exercised; Databricks returns this for `TIMESTAMP WITH TIME ZONE` columns |
+| L18 | `BOOLEAN` wire format is `"true"`/`"false"` | PostgreSQL native protocol uses `"t"`/`"f"`; some strict clients may reject the lowercase word form |
+
+---
+
+## B4 Implementation Summary
+
+**Issue:** #26
+**Build:** 154 tests, 0 failures (36 new tests added)
+
+### Bugs fixed
+
+| Bug | File | Detail |
+|---|---|---|
+| Arrow timestamp rendered as epoch millis | `ArrowIpcRowWriter.java` | `TimeStampMilliVector.getObject()` returns `Long`; now rendered via `LocalDateTime.ofInstant(…, ZoneId.systemDefault())` |
+| Arrow date rendered as epoch days | `ArrowIpcRowWriter.java` | `DateDayVector.getObject()` returns `Integer`; now rendered via `LocalDate.ofEpochDay()` |
+| Path 1 timestamp trailing `.0` | `PgWireSession.java` | `Timestamp.toString()` produces `"2021-06-15 12:30:00.0"`; replaced with `renderJdbcValue()` using `Timestamp.toLocalDateTime()` |
+
+### Test classes added
+
+| Class | Tests | What it covers |
+|---|---|---|
+| `ValueEncodingArrowTest` | 8 | Arrow IPC → pgwire text rendering; timestamp, date, decimal, null, bigint |
+| `NullSemanticsTest` | 4 | SQL NULL arrives as Java `null`; `wasNull()` returns true |
+| `DecimalCorrectnessTest` | 5 | Scale preserved; negative sign; zero; small fractional; inline CAST |
+| `TimestampFormattingTest` | 5 | No trailing `.0`; ISO format; epoch-zero renders as date not number |
+| `TypeOidCorrectnessTest` | 8 | OID round-trip: BIGINT→20, INTEGER→23, NUMERIC→1700, DATE→1082, TIMESTAMP→1114, etc. |
+| `OrderingLimitTest` | 6 | ASC/DESC order; LIMIT; LIMIT+OFFSET; string collation |
+
+### Infrastructure
+
+- `GatewayCorrectnessHarness`: shared H2-backed PgWireServer; trust auth; cache disabled; simple-query mode
+- Golden results are inline expected values in each test (not snapshot files)
+- No Databricks connection required — all 154 tests pass in CI
+
+### Note on timezone (Arrow path)
+
+`TIMESTAMP` (no TZ) round-trips through `ZoneId.systemDefault()` — consistent with JDBC's `Timestamp.toLocalDateTime()`. Both paths now produce identical output regardless of JVM timezone offset.
 
 ---
 
 ## Next Recommended Issue
 
-**B4 — Correctness test suite (golden results)**
+**B5 — Observability (production-grade metrics)**
 
-B3 is now complete. The next high-value story is B4: a correctness test suite that validates query results against known-good data. This requires:
-1. A seeded test dataset in Databricks (or H2 for unit tests)
-2. Golden-result snapshots for common Tableau query patterns
-3. Integration tests that run the full gateway pipeline and compare results
+B4 is complete. B5 scope:
+- Wire `QueryCacheMetrics` and `QueryResultCacheMetrics` into Micrometer
+- Add counters: cache hit/miss, query latency histogram, active session gauge, error rate by SQLSTATE
+- Expose via `/actuator/prometheus` (Spring Boot Actuator already present)
+- No new architecture — instrument existing counters, add Micrometer dependency
 
 **Alternative: L14 — Fix Execute/Describe RowDescription duplication**
-Resolving L14 would unlock DBeaver and DataGrip compatibility via extended-query mode, without needing a Databricks connection for test coverage. Scope: track `portalDescribed` flag; skip RowDescription in Execute response when Describe was already answered.
+Scope: track `portalDescribed` flag; skip RowDescription in Execute when Describe already answered. Unlocks DBeaver/DataGrip extended-query compatibility.
+
+---
+
+## Technical Debt Discovered During B4
+
+| ID | Detail | Priority |
+|---|---|---|
+| L16 | `SqlGatewayIT` placeholder — real Databricks integration tests need CI secrets + seeded warehouse | Low (blocks live data validation only) |
+| L17 | `TIMESTAMPTZ` Arrow path untested — `TimeStampMilliTZVector` not exercised by H2 (H2 has no `TIMESTAMP WITH TIME ZONE` that round-trips via Arrow TZ vector) | Medium (Databricks `timestamp_ltz` columns) |
+| L18 | `BOOLEAN` renders as `"true"`/`"false"` — PostgreSQL native uses `"t"`/`"f"`; `JdbcToPgTypeMapper` maps BOOL→OID 16 correctly but value encoding diverges | Low (most clients accept both forms) |
