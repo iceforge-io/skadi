@@ -1,9 +1,9 @@
 # Skadi — Development Status
 
 > Updated: 2026-05-12
-> Branch: `feature/tableau-sql-endpoint-b6-security-hardening` → PR #34
-> Last commit: `287740e`
-> Build: ✅ 199 tests passing
+> Branch: `feature/tableau-sql-endpoint-b7-deployment-readiness` → PR #35
+> Last commit: pending push
+> Build: ✅ 201 tests passing
 
 ---
 
@@ -33,8 +33,41 @@
 | B4 | Correctness test suite (golden results) | ✅ Done | `ce47076` (PR #32) | 36 tests; 2 bugs fixed in Arrow/path-1 value rendering |
 | B5 | Observability — production-grade | ✅ Done | `d2c7f7a` (PR #33) | Prometheus endpoint, Micrometer timers, session gauge, correlation IDs |
 | B6 | Security hardening — TLS, redaction, audit log | ✅ Done | `287740e` (PR #34) | SecretRedactor, SqlSecurityValidator, AuditLog, require-ssl enforcement |
-| B7 | Tableau Server / Cloud deployment readiness | 🔜 Next | — | Local dev only |
+| B7 | Tableau Server / Cloud deployment readiness | ✅ Done | pending (PR #35) | Dockerfile, docker-compose, health indicator, full deployment docs |
 | B8 | MySQL wire-protocol endpoint (optional) | ❌ Not started | — | Dialect translator exists |
+
+---
+
+## B7 Implementation Summary
+
+**Issue:** #35 (to be closed)
+
+### PgWireHealthIndicator
+- `@Component("pgWire")` registered under `pgWire` key for `/actuator/health/pgWire`
+- `@ConditionalOnProperty(prefix = "skadi.sql-gateway.pgwire", name = "enabled", havingValue = "true")`
+- Reports `UP` with `port` and `protocol` details when `PgWireServerLifecycle` is running
+- Reports `DOWN` with `reason` when disabled or not yet bound
+- 2 unit tests: UP path (real server on ephemeral port), DOWN path (disabled lifecycle)
+
+### Docker packaging
+- `skadi-sql-gateway/Dockerfile`: multi-stage build (eclipse-temurin:21-jdk-jammy → 21-jre-jammy)
+- Non-root `skadi` system user; EXPOSE 15432 and 8090; HEALTHCHECK on `/actuator/health`
+- Note: Databricks JDBC driver excluded (provided/optional scope) — extend image or mount volume
+- `skadi-sql-gateway/docker-compose.yml`: full env-var mapping with sensible defaults; Prometheus/Grafana commented
+
+### Deployment documentation
+- `docs/deployment/README.md`: architecture overview, port table, full config reference table, health endpoint table
+- `docs/deployment/docker.md`: build, compose, docker run, JDBC driver options, TLS proxy examples, k8s manifest with readiness probe on `/actuator/health/pgWire`
+- `docs/deployment/tableau-server.md`: Tableau Desktop connect walkthrough, publish data source, schedule refresh, SSL, supported features
+- `docs/deployment/tableau-bridge.md`: Bridge architecture, install walkthrough, live vs extract modes, firewall requirements, sizing guide
+- `docs/deployment/production-checklist.md`: infrastructure, configuration, security, health check, smoke test, observability, Tableau, Databricks, runbook reference
+- `docs/deployment/troubleshooting.md`: connection errors, query errors, performance, Docker startup, Tableau-specific, logging/diagnostics guidance
+
+### Smoke test script
+- `scripts/smoke-test.sh`: tests HTTP health, pgwire connectivity, metadata facade, optional real Databricks query; exit 0 on pass / exit 1 on fail
+
+### Module README
+- `skadi-sql-gateway/README.md`: rewritten with quick start, ports, auth modes, build/test, Docker, config reference, health endpoints, links to deployment guides
 
 ---
 
