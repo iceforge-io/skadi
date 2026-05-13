@@ -1,8 +1,8 @@
 # Skadi — Development Status
 
 > Updated: 2026-05-12
-> Branch: `main` (B6 uncommitted)
-> Last commit: `05946b0`
+> Branch: `feature/tableau-sql-endpoint-b6-security-hardening` → PR #34
+> Last commit: `287740e`
 > Build: ✅ 199 tests passing
 
 ---
@@ -32,8 +32,8 @@
 | B3 | Protocol completeness for JDBC ecosystem | ✅ Done | `0243425` (PR #31) | L1 fixed: Bind params parsed + forwarded to both execution paths |
 | B4 | Correctness test suite (golden results) | ✅ Done | `ce47076` (PR #32) | 36 tests; 2 bugs fixed in Arrow/path-1 value rendering |
 | B5 | Observability — production-grade | ✅ Done | `d2c7f7a` (PR #33) | Prometheus endpoint, Micrometer timers, session gauge, correlation IDs |
-| B6 | Security hardening — TLS, redaction, audit log | ✅ Done | pending | SecretRedactor, SqlSecurityValidator, AuditLog, require-ssl enforcement |
-| B7 | Tableau Server / Cloud deployment readiness | ❌ Not started | — | Local dev only |
+| B6 | Security hardening — TLS, redaction, audit log | ✅ Done | `287740e` (PR #34) | SecretRedactor, SqlSecurityValidator, AuditLog, require-ssl enforcement |
+| B7 | Tableau Server / Cloud deployment readiness | 🔜 Next | — | Local dev only |
 | B8 | MySQL wire-protocol endpoint (optional) | ❌ Not started | — | Dialect translator exists |
 
 ---
