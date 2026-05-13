@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(echo:*)",
+      "Bash(JAVA_HOME=/c/develop/jdk/java22 ./mvnw verify 2>&1)",
+      "Bash(git:*)",
+      "Bash(find:*)",
+      "Bash(JAVA_HOME=/c/develop/jdk/java22 ./mvnw test -pl skadi-sql-gateway 2>&1 | tail -60)",
+      "Bash(JAVA_HOME=/c/develop/jdk/java22 ./mvnw test -pl skadi-sql-gateway 2>&1 | tail -25)",
+      "Bash(JAVA_HOME=/c/develop/jdk/java22 ./mvnw verify -DskipTests 2>&1 | tail -15)",
+      "Bash(gh issue:*)",
+      "Read(//c/Program Files/**)",
+      "Read(//c/Users/dkay2/AppData/Local/**)",
+      "Read(//c/Users/dkay2/**)",
+      "Bash(export:*)",
+      "Bash(GH=\"/c/Program Files/GitHub CLI/gh.exe\" && \"$GH\" issue list --repo iceforge-io/skadi --state open --limit 30)",
+      "Bash(GH=\"/c/Program Files/GitHub CLI/gh.exe\" && \"$GH\" auth status)",
+      "Bash(GH=\"/c/Program Files/GitHub CLI/gh.exe\" && \"$GH\" issue list --repo iceforge-io/skadi --state open --limit 30 2>&1)",
+      "Bash(GH=\"/c/Program Files/GitHub CLI/gh.exe\"\n\"$GH\" issue view 24 --repo iceforge-io/skadi 2>&1 | head -40\necho \"---\"\n\"$GH\" issue view 25 --repo iceforge-io/skadi 2>&1 | head -40)",
+      "Bash(./mvnw test:*)",
+      "Bash(which java:*)",
+      "Bash(JAVA_HOME=/c/Users/dkay2/.jdks/openjdk-22.0.2 ./mvnw test -pl skadi-sql-gateway 2>&1 | tail -60)",
+      "Bash(\"/c/Program Files/GitHub CLI/gh.exe\" issue view 24 --repo iceforge-io/skadi --json title,state)",
+      "Bash(JAVA_HOME=/c/Users/dkay2/.jdks/openjdk-22.0.2 ./mvnw test -pl skadi-sql-gateway 2>&1 | grep -E \"\\(Tests run|BUILD|ERROR|FAIL\\)\" | tail -20)",
+      "Bash(python3 *)",
+      "Bash(gh pr *)",
+      "Bash(chmod +x *)",
+      "Bash(wait)"
+    ]
+  }
+}
