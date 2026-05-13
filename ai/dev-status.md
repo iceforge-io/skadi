@@ -1,8 +1,8 @@
 # Skadi — Development Status
 
 > Updated: 2026-05-12
-> Branch: `main` (B5 uncommitted)
-> Last commit: `ce47076`
+> Branch: `feature/tableau-sql-endpoint-b5-observability` → PR #33
+> Last commit: `d2c7f7a`
 > Build: ✅ 167 tests passing
 
 ---
@@ -31,8 +31,8 @@
 | B2 | Cancellation, timeouts, resource controls | ✅ Done | `5c07c1b` | See below |
 | B3 | Protocol completeness for JDBC ecosystem | ✅ Done | `0243425` (PR #31) | L1 fixed: Bind params parsed + forwarded to both execution paths |
 | B4 | Correctness test suite (golden results) | ✅ Done | `ce47076` (PR #32) | 36 tests; 2 bugs fixed in Arrow/path-1 value rendering |
-| B5 | Observability — production-grade | ✅ Done | pending | Prometheus endpoint, Micrometer timers, session gauge, correlation IDs |
-| B6 | Security hardening — TLS, redaction, audit log | ❌ Not started | — | Plaintext credentials on wire |
+| B5 | Observability — production-grade | ✅ Done | `d2c7f7a` (PR #33) | Prometheus endpoint, Micrometer timers, session gauge, correlation IDs |
+| B6 | Security hardening — TLS, redaction, audit log | 🔜 Next | — | Plaintext credentials on wire |
 | B7 | Tableau Server / Cloud deployment readiness | ❌ Not started | — | Local dev only |
 | B8 | MySQL wire-protocol endpoint (optional) | ❌ Not started | — | Dialect translator exists |
 
@@ -216,12 +216,23 @@ management:
 **B6 — Security hardening (TLS, audit log, token redaction)**
 
 B5 is complete. B6 scope:
-- TLS for pgwire (`SSLRequest` currently returns `N`)
-- Audit log: connection accepted/rejected, schema ACL denials
-- Confirm no secrets appear in any log or metric label
+- TLS for pgwire — `SSLRequest` currently returns `N`; add Java `SSLContext` wrapping the socket
+- Audit log: one structured log line per connection attempt (accepted/rejected) and schema ACL denial
+- Verify no secrets (Databricks token, user passwords, bind param values) appear in any log line or Prometheus label
+- Review `setClientInfo` usage — confirm only non-sensitive fields forwarded to Databricks
 
 **Alternative: L14 — Fix Execute/Describe RowDescription duplication**
-Unlocks DBeaver/DataGrip extended-query compatibility.
+Unlocks DBeaver/DataGrip extended-query compatibility without needing TLS.
+
+---
+
+## Technical Debt Discovered During B5
+
+| ID | Detail | Priority |
+|---|---|---|
+| L19 | No Grafana dashboard template | Low — metrics are Prometheus-ready; dashboard JSON is a follow-up deliverable |
+| L20 | `QueryCacheMetrics` (path-1b static singleton) not in Micrometer | Low — it is `private static final` in `PgWireSession`; `cache_tier` tags on `skadi_queries` give equivalent visibility |
+| L21 | No OpenTelemetry spans | Medium — `query_id` MDC + Databricks `ApplicationName` covers correlation; OTel spans require a dep decision |
 
 ---
 
