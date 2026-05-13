@@ -1,9 +1,9 @@
 # Skadi — Development Status
 
 > Updated: 2026-05-12
-> Branch: `feature/tableau-sql-endpoint-b4-correctness-tests` → PR #32
+> Branch: `main` (B5 uncommitted)
 > Last commit: `ce47076`
-> Build: ✅ 154 tests passing
+> Build: ✅ 167 tests passing
 
 ---
 
@@ -31,7 +31,7 @@
 | B2 | Cancellation, timeouts, resource controls | ✅ Done | `5c07c1b` | See below |
 | B3 | Protocol completeness for JDBC ecosystem | ✅ Done | `0243425` (PR #31) | L1 fixed: Bind params parsed + forwarded to both execution paths |
 | B4 | Correctness test suite (golden results) | ✅ Done | `ce47076` (PR #32) | 36 tests; 2 bugs fixed in Arrow/path-1 value rendering |
-| B5 | Observability — metrics, tracing, dashboards | 🔜 Next | — | Hit/miss counters only |
+| B5 | Observability — production-grade | ✅ Done | pending | Prometheus endpoint, Micrometer timers, session gauge, correlation IDs |
 | B6 | Security hardening — TLS, redaction, audit log | ❌ Not started | — | Plaintext credentials on wire |
 | B7 | Tableau Server / Cloud deployment readiness | ❌ Not started | — | Local dev only |
 | B8 | MySQL wire-protocol endpoint (optional) | ❌ Not started | — | Dialect translator exists |
@@ -144,18 +144,84 @@
 
 ---
 
+## B5 Implementation Summary
+
+**Issue:** #27
+**Build:** 167 tests, 0 failures (13 new tests)
+
+### Dependencies added
+- `micrometer-registry-prometheus` — enables `/actuator/prometheus` scrape endpoint (Micrometer core was already present via `spring-boot-starter-actuator`)
+
+### New classes (`metrics` package)
+
+| Class | Role |
+|---|---|
+| `GatewayMetrics` | Spring `@Component`; owns all Micrometer meters |
+| `GatewayMetricsHolder` | Static null-safe bridge; lets `PgWireSession` (manually constructed) call metrics without Spring injection |
+| `GatewayMetricsWiring` | `@Configuration`; sets `GatewayMetricsHolder` at startup |
+
+### Metrics exposed at `/actuator/prometheus`
+
+| Metric | Type | Tags | Description |
+|---|---|---|---|
+| `skadi_sessions_active` | Gauge | — | Currently connected pgwire clients |
+| `skadi_queries_seconds` | Timer histogram | `cache_tier`, `outcome` | Query latency; p50/p95/p99 via percentile histogram |
+| `skadi_query_errors_total` | Counter | `sqlstate` | Failed queries by SQLSTATE code |
+
+Cache tier tag values: `hit` (path-1b cache hit), `miss` (path-1b miss), `skip` (no cache), `arrow_hit` (path-3 cache hit), `arrow_miss` (path-3 Databricks execute).
+
+### Correlation IDs
+
+- `query_id` (12-char hex UUID) added to MDC for each query execution
+- Appears in every log line during query: `[sid=abc qid=def123 client=tableau]`
+- Forwarded to Databricks via `setClientInfo("ApplicationName", "skadi/<session_id>/<query_id>")`
+- Enables correlating client-visible latency with Databricks query history
+
+### Structured log redaction
+
+- SQL text only appears in trace mode (`trace.enabled=true`)
+- Bind parameter values never logged at any level
+- Passwords never logged (arrive in separate `PasswordMessage`, not startup params)
+- Databricks token never referenced in logs
+
+### Config additions (`application.yml`)
+
+```yaml
+management:
+  endpoint:
+    prometheus:
+      enabled: true
+  metrics:
+    tags:
+      application: skadi-sql-gateway        # applied to all metrics
+    distribution:
+      percentiles:
+        skadi.queries: 0.5,0.95,0.99
+      percentiles-histogram:
+        skadi.queries: true
+```
+
+### Known gaps (B5 TODOs)
+
+| ID | Gap | Notes |
+|---|---|---|
+| L19 | No Grafana dashboard template | Metrics are Prometheus-ready; dashboard JSON not yet provided |
+| L20 | `QueryCacheMetrics` (path-1 static) not bridged to Micrometer | It's a `private static` in `PgWireSession`; would require exposing via accessor. Cache tier tags on `skadi_queries` provide equivalent visibility |
+| L21 | No OpenTelemetry tracing spans | Structured traces via OTel would complement the MDC `query_id` for distributed tracing; not in scope without OTel dependency decision |
+
+---
+
 ## Next Recommended Issue
 
-**B5 — Observability (production-grade metrics)**
+**B6 — Security hardening (TLS, audit log, token redaction)**
 
-B4 is complete. B5 scope:
-- Wire `QueryCacheMetrics` and `QueryResultCacheMetrics` into Micrometer
-- Add counters: cache hit/miss, query latency histogram, active session gauge, error rate by SQLSTATE
-- Expose via `/actuator/prometheus` (Spring Boot Actuator already present)
-- No new architecture — instrument existing counters, add Micrometer dependency
+B5 is complete. B6 scope:
+- TLS for pgwire (`SSLRequest` currently returns `N`)
+- Audit log: connection accepted/rejected, schema ACL denials
+- Confirm no secrets appear in any log or metric label
 
 **Alternative: L14 — Fix Execute/Describe RowDescription duplication**
-Scope: track `portalDescribed` flag; skip RowDescription in Execute when Describe already answered. Unlocks DBeaver/DataGrip extended-query compatibility.
+Unlocks DBeaver/DataGrip extended-query compatibility.
 
 ---
 
