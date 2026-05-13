@@ -29,7 +29,8 @@ public record SqlGatewayProperties(
             Integer maxRows,
             Integer fetchSize,
             Duration queryTimeout,
-            Integer maxConcurrentQueriesPerUser
+            Integer maxConcurrentQueriesPerUser,
+            Tls tls
     ) {
         /** Effective query timeout; null means no limit. */
         public Duration effectiveQueryTimeout() {
@@ -49,6 +50,33 @@ public record SqlGatewayProperties(
                 Map<String, PolicyConfig> policies           // username → schema ACL
         ) {
             public record PolicyConfig(List<String> allowedSchemas) {}
+        }
+
+        /**
+         * TLS configuration for the pgwire listener.
+         *
+         * <p>When {@code enabled=false} (default), the server declines {@code SSLRequest}
+         * with {@code 'N'} and accepts only plaintext connections.
+         *
+         * <p>When {@code enabled=true}, the server responds {@code 'S'} to {@code SSLRequest}
+         * and performs a STARTTLS upgrade using the configured keystore.
+         * A valid PKCS12 (or JKS) keystore must be provided; see B6 deployment guide.
+         *
+         * <p>When {@code require-ssl=true}, any client that does not send {@code SSLRequest}
+         * before {@code StartupMessage} is rejected with SQLSTATE 28000.
+         */
+        public record Tls(
+                boolean enabled,
+                boolean requireSsl,
+                String keystorePath,
+                String keystorePassword,
+                String keystoreType           // "PKCS12" (default) | "JKS"
+        ) {
+            public boolean isEnabled() { return enabled; }
+            public boolean isRequireSsl() { return requireSsl; }
+            public String effectiveKeystoreType() {
+                return (keystoreType == null || keystoreType.isBlank()) ? "PKCS12" : keystoreType;
+            }
         }
     }
 

@@ -16,5 +16,18 @@ public record DatabricksProperties(
         Duration queryTimeout,
         Map<String, String> jdbcProperties
 ) {
+    /** Overridden to prevent the Databricks token from appearing in logs or actuator output. */
+    @Override
+    public String toString() {
+        return "DatabricksProperties[enabled=" + enabled
+                + ", host=" + host
+                + ", httpPath=" + httpPath
+                + ", token=***"
+                + ", maxPoolSize=" + maxPoolSize
+                + ", connectTimeout=" + connectTimeout
+                + ", queryTimeout=" + queryTimeout
+                + ", jdbcProperties=" + jdbcProperties
+                + "]";
+    }
 }
 

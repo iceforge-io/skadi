@@ -127,7 +127,7 @@ class ExtendedQueryParameterTest {
         SqlGatewayProperties.PgWire.Auth auth =
                 new SqlGatewayProperties.PgWire.Auth("trust", null, Map.of(), null);
         SqlGatewayProperties.PgWire props =
-                new SqlGatewayProperties.PgWire(true, "127.0.0.1", 0, auth, null, null, null, null);
+                new SqlGatewayProperties.PgWire(true, "127.0.0.1", 0, auth, null, null, null, null, null);
         PgWireServer server = new PgWireServer(props, null, null, null);
         server.start();
         for (int i = 0; i < 50 && server.getLocalPort() == 0; i++) Thread.sleep(10);

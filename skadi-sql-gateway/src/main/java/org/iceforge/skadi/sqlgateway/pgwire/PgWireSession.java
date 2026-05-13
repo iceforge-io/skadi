@@ -12,6 +12,9 @@ import org.iceforge.skadi.sqlgateway.dialect.SqlDialectBridge;
 import org.iceforge.skadi.sqlgateway.dialect.SqlDialectBridgeOptions;
 import org.iceforge.skadi.sqlgateway.executor.SqlParam;
 import org.iceforge.skadi.sqlgateway.metrics.GatewayMetricsHolder;
+import org.iceforge.skadi.sqlgateway.security.AuditLog;
+import org.iceforge.skadi.sqlgateway.security.SqlSecurityValidator;
+import org.iceforge.skadi.sqlgateway.trace.QueryFingerprint;
 import org.iceforge.skadi.sqlgateway.metadata.MetadataCache;
 import org.iceforge.skadi.sqlgateway.metadata.MetadataQueryRouter;
 import org.iceforge.skadi.sqlgateway.metadata.MetadataRowSet;
@@ -166,8 +169,11 @@ final class PgWireSession implements Runnable {
             ByteBuffer buf = ByteBuffer.wrap(payload).order(ByteOrder.BIG_ENDIAN);
             int code = buf.getInt();
 
+            boolean sslRequestReceived = false;
             if (code == 80877103) { // SSLRequest
-                out.writeByte('N');
+                sslRequestReceived = true;
+                // TODO(L22): full STARTTLS upgrade when tls.enabled=true (needs SSLContext from keystore)
+                out.writeByte('N'); // decline TLS at protocol level; use a TLS-terminating proxy for production
                 out.flush();
 
                 // Next packet must be StartupMessage.
@@ -184,6 +190,17 @@ final class PgWireSession implements Runnable {
                 return; // close connection; per protocol no response is sent
             }
 
+            // Enforce SSL requirement before reading startup params (user unknown at this point).
+            SqlGatewayProperties.PgWire.Tls tlsCfg = props.tls();
+            if (tlsCfg != null && tlsCfg.isRequireSsl() && !sslRequestReceived) {
+                writeError(out, "28000",
+                        "SSL connection required. Enable SSL in your client (e.g. sslmode=require).");
+                writeReady(out);
+                out.flush();
+                AuditLog.connect(sessionId, "", "", false);
+                return;
+            }
+
             if (code != 196608) { // protocol 3.0
                 writeError(out, "08000", "Unsupported protocol");
                 writeReady(out);
@@ -193,6 +210,9 @@ final class PgWireSession implements Runnable {
 
             Map<String, String> params = readStartupParams(buf);
             this.user = params.getOrDefault("user", "");
+
+            // Derive client early so it is available for audit logging on auth failure.
+            String client = deriveClient(params);
 
             if (authProvider.requiresPassword()) {
                 writeAuthCleartext(out);
@@ -204,6 +224,7 @@ final class PgWireSession implements Runnable {
                     writeError(out, "28P01", "password authentication failed");
                     writeReady(out);
                     out.flush();
+                    AuditLog.connect(sessionId, user, client, false);
                     return;
                 }
                 int mlen = in.readInt();
@@ -214,6 +235,7 @@ final class PgWireSession implements Runnable {
                     writeError(out, "28P01", "password authentication failed");
                     writeReady(out);
                     out.flush();
+                    AuditLog.connect(sessionId, user, client, false);
                     return;
                 }
             }
@@ -221,11 +243,11 @@ final class PgWireSession implements Runnable {
             // Resolve authorization policy for this principal.
             this.policy = policyRegistry.policyFor(user);
 
-            String client = deriveClient(params);
             MDC.put("client", client);
             tracer.sessionStart(params, client);
 
             GatewayMetricsHolder.sessionOpened();
+            AuditLog.connect(sessionId, user, client, true);
             writeAuthOk(out);
             writeParameterStatus(out, "server_version", "15.0");
             writeParameterStatus(out, "client_encoding", "UTF8");
@@ -500,6 +522,14 @@ final class PgWireSession implements Runnable {
         // If JDBC execution is configured, try to run the query and stream results.
         SqlExecutorProvider executorProvider = SqlExecutorProviderHolder.get();
         if (executorProvider != null) {
+            // Security: reject oversized or malformed queries before touching the backend.
+            try {
+                SqlSecurityValidator.validate(s);
+            } catch (SqlSecurityValidator.SqlSecurityException e) {
+                writeError(out, "42501", e.getMessage());
+                return;
+            }
+
             long queryT0 = System.currentTimeMillis();
             try {
                 streamJdbcQueryWithCaching(out, executorProvider, s, params);
@@ -508,6 +538,8 @@ final class PgWireSession implements Runnable {
                 long errorLatency = System.currentTimeMillis() - queryT0;
                 tracer.queryError(s, "XX000", e.getMessage());
                 GatewayMetricsHolder.recordQueryError(errorLatency, "XX000");
+                AuditLog.queryError(sessionId, MDC.get("query_id"), user, dbxSchema,
+                        QueryFingerprint.of(s), "XX000");
                 writeError(out, "XX000", "JDBC execution failed: " + e.getMessage());
                 return;
             }
@@ -585,6 +617,9 @@ final class PgWireSession implements Runnable {
             long latencyMs = System.currentTimeMillis() - t0;
             tracer.queryEnd(sql, rows, latencyMs, cacheTag);
             GatewayMetricsHolder.recordQuery(latencyMs, cacheTag);
+            AuditLog.query(sessionId, MDC.get("query_id"), user, dbxSchema,
+                    QueryFingerprint.of(sql),
+                    cacheTag, rows, latencyMs);
             return;
         }
 
@@ -610,6 +645,9 @@ final class PgWireSession implements Runnable {
                         writeCommandComplete(out, "OK");
                         tracer.queryEnd(sql, 0, latencyMs, "SKIP");
                         GatewayMetricsHolder.recordQuery(latencyMs, "SKIP");
+                        AuditLog.query(sessionId, MDC.get("query_id"), user, dbxSchema,
+                                QueryFingerprint.of(sql),
+                                "SKIP", 0, latencyMs);
                         return;
                     }
                     try (ResultSet rs = ps.getResultSet()) {
@@ -620,6 +658,9 @@ final class PgWireSession implements Runnable {
                         long latencyMs = System.currentTimeMillis() - t0;
                         tracer.queryEnd(sql, rows, latencyMs, "SKIP");
                         GatewayMetricsHolder.recordQuery(latencyMs, "SKIP");
+                        AuditLog.query(sessionId, MDC.get("query_id"), user, dbxSchema,
+                                QueryFingerprint.of(sql),
+                                "SKIP", rows, latencyMs);
                     }
                 } finally {
                     this.activeStatement = null;
@@ -642,6 +683,9 @@ final class PgWireSession implements Runnable {
                 long latencyMs = System.currentTimeMillis() - t0;
                 tracer.queryEnd(sql, entry.rows().size(), latencyMs, "HIT");
                 GatewayMetricsHolder.recordQuery(latencyMs, "HIT");
+                AuditLog.query(sessionId, MDC.get("query_id"), user, dbxSchema,
+                        QueryFingerprint.of(sql),
+                        "HIT", entry.rows().size(), latencyMs);
                 return;
             }
             CACHE_METRICS.recordMiss();
@@ -666,6 +710,9 @@ final class PgWireSession implements Runnable {
                     writeCommandComplete(out, "OK");
                     tracer.queryEnd(sql, 0, latencyMs, "MISS");
                     GatewayMetricsHolder.recordQuery(latencyMs, "MISS");
+                    AuditLog.query(sessionId, MDC.get("query_id"), user, dbxSchema,
+                            QueryFingerprint.of(sql),
+                            "MISS", 0, latencyMs);
                     return;
                 }
 
@@ -711,6 +758,9 @@ final class PgWireSession implements Runnable {
                     String cacheTag1b = cacheEnabled ? "MISS" : "SKIP";
                     tracer.queryEnd(sql, rows, latencyMs, cacheTag1b);
                     GatewayMetricsHolder.recordQuery(latencyMs, cacheTag1b);
+                    AuditLog.query(sessionId, MDC.get("query_id"), user, dbxSchema,
+                            QueryFingerprint.of(sql),
+                            cacheTag1b, rows, latencyMs);
                 }
             } finally {
                 this.activeStatement = null;

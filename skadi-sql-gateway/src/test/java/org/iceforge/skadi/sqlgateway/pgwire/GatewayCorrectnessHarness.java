@@ -41,7 +41,7 @@ final class GatewayCorrectnessHarness implements AutoCloseable {
                 new SqlGatewayProperties.PgWire.Auth("trust", null, Map.of(), null);
         // cacheProps = null → caching disabled; tests always hit H2.
         SqlGatewayProperties.PgWire props =
-                new SqlGatewayProperties.PgWire(true, "127.0.0.1", 0, auth, null, null, null, null);
+                new SqlGatewayProperties.PgWire(true, "127.0.0.1", 0, auth, null, null, null, null, null);
 
         this.server = new PgWireServer(props, null, null, null);
         server.start();

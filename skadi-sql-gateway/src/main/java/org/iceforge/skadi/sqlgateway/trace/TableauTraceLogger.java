@@ -1,5 +1,6 @@
 package org.iceforge.skadi.sqlgateway.trace;
 
+import org.iceforge.skadi.sqlgateway.security.SecretRedactor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -49,8 +50,11 @@ public final class TableauTraceLogger {
     public void sessionStart(Map<String, String> startupParams, String client) {
         if (!traceEnabled) return;
         if (startupParams != null && !startupParams.isEmpty()) {
+            // Redact any sensitive keys before logging (belt-and-suspenders; passwords
+            // arrive in PasswordMessage, not startup params, but third-party clients vary).
+            Map<String, String> safe = SecretRedactor.redact(startupParams);
             log.info("event=session_start session_id={} client={} params=\"{}\"",
-                    sessionId, client, formatParams(startupParams));
+                    sessionId, client, formatParams(safe));
         } else {
             log.info("event=session_start session_id={} client={}", sessionId, client);
         }
