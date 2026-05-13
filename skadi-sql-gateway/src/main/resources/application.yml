@@ -68,3 +68,15 @@ management:
     web:
       exposure:
         include: health,info,metrics,prometheus
+  endpoint:
+    prometheus:
+      enabled: true
+  metrics:
+    tags:
+      application: skadi-sql-gateway
+    distribution:
+      # Publish p50/p95/p99 latency percentiles for query timers.
+      percentiles:
+        skadi.queries: 0.5,0.95,0.99
+      percentiles-histogram:
+        skadi.queries: true

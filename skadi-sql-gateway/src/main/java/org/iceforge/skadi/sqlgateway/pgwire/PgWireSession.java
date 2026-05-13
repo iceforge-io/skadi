@@ -11,6 +11,7 @@ import org.iceforge.skadi.sqlgateway.config.SqlGatewayProperties;
 import org.iceforge.skadi.sqlgateway.dialect.SqlDialectBridge;
 import org.iceforge.skadi.sqlgateway.dialect.SqlDialectBridgeOptions;
 import org.iceforge.skadi.sqlgateway.executor.SqlParam;
+import org.iceforge.skadi.sqlgateway.metrics.GatewayMetricsHolder;
 import org.iceforge.skadi.sqlgateway.metadata.MetadataCache;
 import org.iceforge.skadi.sqlgateway.metadata.MetadataQueryRouter;
 import org.iceforge.skadi.sqlgateway.metadata.MetadataRowSet;
@@ -224,6 +225,7 @@ final class PgWireSession implements Runnable {
             MDC.put("client", client);
             tracer.sessionStart(params, client);
 
+            GatewayMetricsHolder.sessionOpened();
             writeAuthOk(out);
             writeParameterStatus(out, "server_version", "15.0");
             writeParameterStatus(out, "client_encoding", "UTF8");
@@ -380,6 +382,7 @@ final class PgWireSession implements Runnable {
             log.debug("pgwire session ended with error: {}", e.toString());
         } finally {
             if (registry != null) registry.deregister(pid, secretKey);
+            GatewayMetricsHolder.sessionClosed();
             tracer.sessionEnd();
             MDC.clear();
         }
@@ -497,11 +500,14 @@ final class PgWireSession implements Runnable {
         // If JDBC execution is configured, try to run the query and stream results.
         SqlExecutorProvider executorProvider = SqlExecutorProviderHolder.get();
         if (executorProvider != null) {
+            long queryT0 = System.currentTimeMillis();
             try {
                 streamJdbcQueryWithCaching(out, executorProvider, s, params);
                 return;
             } catch (Exception e) {
+                long errorLatency = System.currentTimeMillis() - queryT0;
                 tracer.queryError(s, "XX000", e.getMessage());
+                GatewayMetricsHolder.recordQueryError(errorLatency, "XX000");
                 writeError(out, "XX000", "JDBC execution failed: " + e.getMessage());
                 return;
             }
@@ -547,13 +553,18 @@ final class PgWireSession implements Runnable {
         // Enforce per-user concurrency limit.
         if (governor != null && !governor.tryAcquire(user)) {
             writeError(out, "53300", "too many concurrent queries for user: " + user);
+            GatewayMetricsHolder.recordQueryError(0, "53300");
             return;
         }
+        // Assign a short query-scoped correlation ID; written into MDC and forwarded to Databricks.
+        String queryId = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+        MDC.put("query_id", queryId);
         try {
             cancelFlag.set(false);
             streamJdbcQueryWithCachingInner(out, executorProvider, sql, params);
         } finally {
             if (governor != null) governor.release(user);
+            MDC.remove("query_id");
         }
     }
 
@@ -571,7 +582,9 @@ final class PgWireSession implements Runnable {
             String cacheTag = cachingProvider.executeToStream(sql, params, user, arrowBuf, queryTimeout, cancelRequested);
             long rows = ArrowIpcRowWriter.writeRows(arrowBuf.toByteArray(), out);
             writeCommandComplete(out, "SELECT " + rows);
-            tracer.queryEnd(sql, rows, System.currentTimeMillis() - t0, cacheTag);
+            long latencyMs = System.currentTimeMillis() - t0;
+            tracer.queryEnd(sql, rows, latencyMs, cacheTag);
+            GatewayMetricsHolder.recordQuery(latencyMs, cacheTag);
             return;
         }
 
@@ -593,8 +606,10 @@ final class PgWireSession implements Runnable {
                     bindParams(ps, jdbcParams);
                     boolean hasResult = ps.execute();
                     if (!hasResult) {
+                        long latencyMs = System.currentTimeMillis() - t0;
                         writeCommandComplete(out, "OK");
-                        tracer.queryEnd(sql, 0, System.currentTimeMillis() - t0, "SKIP");
+                        tracer.queryEnd(sql, 0, latencyMs, "SKIP");
+                        GatewayMetricsHolder.recordQuery(latencyMs, "SKIP");
                         return;
                     }
                     try (ResultSet rs = ps.getResultSet()) {
@@ -602,7 +617,9 @@ final class PgWireSession implements Runnable {
                         writeRowDescription(out, md);
                         long rows = streamRows(out, rs, md.getColumnCount());
                         writeCommandComplete(out, "SELECT " + rows);
-                        tracer.queryEnd(sql, rows, System.currentTimeMillis() - t0, "SKIP");
+                        long latencyMs = System.currentTimeMillis() - t0;
+                        tracer.queryEnd(sql, rows, latencyMs, "SKIP");
+                        GatewayMetricsHolder.recordQuery(latencyMs, "SKIP");
                     }
                 } finally {
                     this.activeStatement = null;
@@ -622,7 +639,9 @@ final class PgWireSession implements Runnable {
                 QueryResultCache.CacheEntry entry = hit.get();
                 CACHE_METRICS.recordHit();
                 replayFromCache(out, entry);
-                tracer.queryEnd(sql, entry.rows().size(), System.currentTimeMillis() - t0, "HIT");
+                long latencyMs = System.currentTimeMillis() - t0;
+                tracer.queryEnd(sql, entry.rows().size(), latencyMs, "HIT");
+                GatewayMetricsHolder.recordQuery(latencyMs, "HIT");
                 return;
             }
             CACHE_METRICS.recordMiss();
@@ -643,8 +662,10 @@ final class PgWireSession implements Runnable {
 
                 boolean hasResult = st.execute(sql);
                 if (!hasResult) {
+                    long latencyMs = System.currentTimeMillis() - t0;
                     writeCommandComplete(out, "OK");
-                    tracer.queryEnd(sql, 0, System.currentTimeMillis() - t0, "MISS");
+                    tracer.queryEnd(sql, 0, latencyMs, "MISS");
+                    GatewayMetricsHolder.recordQuery(latencyMs, "MISS");
                     return;
                 }
 
@@ -686,7 +707,10 @@ final class PgWireSession implements Runnable {
                         String key = QueryCacheKey.of(sql, user);
                         QUERY_CACHE.put(key, colMetas, bufferedRows, cacheProps.effectiveTtl());
                     }
-                    tracer.queryEnd(sql, rows, System.currentTimeMillis() - t0, cacheEnabled ? "MISS" : "SKIP");
+                    long latencyMs = System.currentTimeMillis() - t0;
+                    String cacheTag1b = cacheEnabled ? "MISS" : "SKIP";
+                    tracer.queryEnd(sql, rows, latencyMs, cacheTag1b);
+                    GatewayMetricsHolder.recordQuery(latencyMs, cacheTag1b);
                 }
             } finally {
                 this.activeStatement = null;
@@ -728,7 +752,12 @@ final class PgWireSession implements Runnable {
     }
 
     private void applyConnectionContext(Connection conn) {
-        try { conn.setClientInfo("ApplicationName", "skadi-sql-gateway"); } catch (Exception ignored) {}
+        // Include session_id and query_id in the Databricks query history for correlation.
+        String queryId = MDC.get("query_id");
+        String appName = queryId != null
+                ? "skadi/" + sessionId + "/" + queryId
+                : "skadi-sql-gateway";
+        try { conn.setClientInfo("ApplicationName", appName); } catch (Exception ignored) {}
         try { conn.setClientInfo("User", user); } catch (Exception ignored) {}
     }
 

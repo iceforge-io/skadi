@@ -2,9 +2,17 @@
 <configuration>
     <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
 
+    <!--
+      MDC keys populated by PgWireSession:
+        session_id  – unique per TCP connection (hex, 12 chars)
+        client      – derived from application_name startup param
+        query_id    – unique per query execution; also forwarded to Databricks via setClientInfo
+      Redaction policy: no passwords, tokens, or bind-parameter values appear in any log field.
+      SQL text appears only in trace mode (skadi.sql-gateway.trace.enabled=true).
+    -->
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
-            <pattern>%d{ISO8601} %-5p [%t] %logger{36} [sid=%X{session_id:-} client=%X{client:-}] %m%n</pattern>
+            <pattern>%d{ISO8601} %-5p [%t] %logger{36} [sid=%X{session_id:-} qid=%X{query_id:-} client=%X{client:-}] %m%n</pattern>
         </encoder>
     </appender>
 
