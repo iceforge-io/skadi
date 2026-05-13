@@ -18,7 +18,8 @@ public record SqlGatewayProperties(
         PgWire pgwire,
         Metadata metadata,
         Cache cache,
-        Trace trace
+        Trace trace,
+        MySqlWire mysqlwire
 ) {
 
     public record PgWire(
@@ -107,6 +108,31 @@ public record SqlGatewayProperties(
     ) {
         public boolean isEnabled() {
             return enabled;
+        }
+    }
+
+    /**
+     * MySQL wire-protocol endpoint configuration (B8 — optional).
+     *
+     * <p>Shares the same execution core (dialect bridge, executor, cache) as the pgwire endpoint.
+     * Auth model is identical: trust (accept all) or password (validate via challenge-response).
+     */
+    public record MySqlWire(
+            boolean enabled,
+            String host,
+            int port,
+            PgWire.Auth auth,
+            Duration queryTimeout,
+            Integer maxConcurrentQueriesPerUser
+    ) {
+        public Duration effectiveQueryTimeout() {
+            return (queryTimeout == null || queryTimeout.isNegative() || queryTimeout.isZero())
+                    ? null : queryTimeout;
+        }
+
+        public int effectiveMaxConcurrentQueriesPerUser() {
+            return (maxConcurrentQueriesPerUser == null || maxConcurrentQueriesPerUser <= 0)
+                    ? 0 : maxConcurrentQueriesPerUser;
         }
     }
 

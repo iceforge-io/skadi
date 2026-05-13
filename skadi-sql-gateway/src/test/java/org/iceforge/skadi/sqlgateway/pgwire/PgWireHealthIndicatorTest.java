@@ -50,7 +50,7 @@ class PgWireHealthIndicatorTest {
 
         // Lifecycle that reports not-running (pgwire.enabled=false).
         PgWireServerLifecycle lifecycle = new PgWireServerLifecycle(
-                new SqlGatewayProperties(null, null, props, null, null, null));
+                new SqlGatewayProperties(null, null, props, null, null, null, null));
         // Do not call lifecycle.start() — simulates disabled state.
 
         PgWireHealthIndicator indicator = new PgWireHealthIndicator(lifecycle);
@@ -69,7 +69,7 @@ class PgWireHealthIndicatorTest {
                 new SqlGatewayProperties.PgWire(true, props.host(), props.port(), props.auth(),
                         null, null, null, null, null);
         PgWireServerLifecycle lifecycle = new PgWireServerLifecycle(
-                new SqlGatewayProperties(null, null, enabledProps, null, null, null));
+                new SqlGatewayProperties(null, null, enabledProps, null, null, null, null));
         // Reflectively set the server field so the lifecycle reports the live server.
         try {
             java.lang.reflect.Field f = PgWireServerLifecycle.class.getDeclaredField("server");
