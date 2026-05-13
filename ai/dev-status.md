@@ -1,9 +1,9 @@
 # Skadi — Development Status
 
 > Updated: 2026-05-12
-> Branch: `feature/tableau-sql-endpoint-b7-deployment-readiness` → PR #35
+> Branch: `feature/tableau-sql-endpoint-b8-mysql-wire` → PR #36
 > Last commit: pending push
-> Build: ✅ 201 tests passing
+> Build: ✅ 232 tests passing
 
 ---
 
@@ -34,7 +34,39 @@
 | B5 | Observability — production-grade | ✅ Done | `d2c7f7a` (PR #33) | Prometheus endpoint, Micrometer timers, session gauge, correlation IDs |
 | B6 | Security hardening — TLS, redaction, audit log | ✅ Done | `287740e` (PR #34) | SecretRedactor, SqlSecurityValidator, AuditLog, require-ssl enforcement |
 | B7 | Tableau Server / Cloud deployment readiness | ✅ Done | pending (PR #35) | Dockerfile, docker-compose, health indicator, full deployment docs |
-| B8 | MySQL wire-protocol endpoint (optional) | ❌ Not started | — | Dialect translator exists |
+| B8 | MySQL wire-protocol endpoint (optional) | ✅ Done | pending (PR #36) | MySqlWireServer, COM_QUERY, mysql_native_password auth; 31 new tests |
+
+---
+
+## B8 Implementation Summary
+
+**Issue:** #30 (to be closed)
+
+### New package: `mysqwire`
+- `MySqlWireServer` — TCP server; accepts connections, spawns `MySqlWireSession` per client
+- `MySqlWireSession` — MySQL Handshake v10, `mysql_native_password` challenge-response auth, COM_QUERY text protocol, COM_PING, COM_QUIT, COM_INIT_DB
+- `MySqlWireServerLifecycle` — `SmartLifecycle` Spring component; mirrors `PgWireServerLifecycle`
+- `MySqlWireHealthIndicator` — `@Component("mySqlWire")` for `/actuator/health/mySqlWire`; gated by `skadi.sql-gateway.mysqlwire.enabled=true`
+- `MySqlExecutorProviderHolder` / `MySqlExecutorProviderWiring` — static bridge for shared Databricks DataSource
+- `JdbcToMySqlTypeMapper` — JDBC type → MySQL column type codes, flags, display widths
+
+### Protocol scope
+- Handshake v10: server greeting with random 20-byte challenge, capability flags, auth plugin name
+- `mysql_native_password`: SHA1(password) XOR SHA1(challenge + SHA1(SHA1(password))); verified server-side from plaintext or trust-mode
+- COM_QUERY: SQL routed through `SqlDialectBridge` (MYSQL dialect) → metadata facade → JDBC executor → MySQL result set (column count, column def ×N, EOF, row data ×N, EOF)
+- Trust mode: accepts any username/password; password mode: validates challenge-response
+
+### Config
+- `SqlGatewayProperties.MySqlWire` record added (7th field in `SqlGatewayProperties`)
+- `SqlDialectBridgeOptions.defaultForMySqlWire()` factory added
+- `application.yml`: `skadi.sql-gateway.mysqlwire.enabled=false` (port 13306)
+
+### Tests added (31 total)
+- `MySqlHandshakeTest` (4): greeting packet structure, unique connection IDs, trust auth, password rejection
+- `MySqlNativePasswordTest` (5): correct password verifies, wrong fails, empty/null token, different challenges
+- `MySqlQueryRoutingTest` (6): SELECT 1, multi-row result, row value encoding, COM_PING, metadata facade, unsupported command ERR
+- `MySqlTypeMapperTest` (14): JDBC → MySQL type codes, flags, display lengths
+- `MySqlWireHealthIndicatorTest` (2): UP when running, DOWN when disabled
 
 ---
 

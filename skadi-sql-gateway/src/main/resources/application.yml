@@ -59,6 +59,18 @@ skadi:
       ttl: 5m
       max-entries: 500
 
+    mysqlwire:
+      enabled: false
+      host: 0.0.0.0
+      port: 13306
+      auth:
+        mode: trust  # trust | password
+        # credential-store: plaintext
+        # users:
+        #   alice: secret
+      # query-timeout: 5m
+      # max-concurrent-queries-per-user: 10
+
     databricks:
       enabled: false
       host: ""

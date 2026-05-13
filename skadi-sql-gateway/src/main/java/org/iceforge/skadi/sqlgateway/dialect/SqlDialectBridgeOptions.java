@@ -29,4 +29,17 @@ public record SqlDialectBridgeOptions(
                 true
         );
     }
+
+    public static SqlDialectBridgeOptions defaultForMySqlWire() {
+        return new SqlDialectBridgeOptions(
+                SourceDialect.MYSQL,
+                ClientCompatibility.GENERIC_JDBC,
+                true,
+                true,
+                false, // no PG-style ::casts to rewrite
+                true,
+                true,
+                true
+        );
+    }
 }
