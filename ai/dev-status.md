@@ -1,9 +1,9 @@
 # Skadi — Development Status
 
 > Updated: 2026-05-12
-> Branch: `main` (B5 uncommitted)
-> Last commit: `ce47076`
-> Build: ✅ 167 tests passing
+> Branch: `feature/tableau-sql-endpoint-b6-security-hardening` → PR #34
+> Last commit: `287740e`
+> Build: ✅ 199 tests passing
 
 ---
 
@@ -31,9 +31,9 @@
 | B2 | Cancellation, timeouts, resource controls | ✅ Done | `5c07c1b` | See below |
 | B3 | Protocol completeness for JDBC ecosystem | ✅ Done | `0243425` (PR #31) | L1 fixed: Bind params parsed + forwarded to both execution paths |
 | B4 | Correctness test suite (golden results) | ✅ Done | `ce47076` (PR #32) | 36 tests; 2 bugs fixed in Arrow/path-1 value rendering |
-| B5 | Observability — production-grade | ✅ Done | pending | Prometheus endpoint, Micrometer timers, session gauge, correlation IDs |
-| B6 | Security hardening — TLS, redaction, audit log | ❌ Not started | — | Plaintext credentials on wire |
-| B7 | Tableau Server / Cloud deployment readiness | ❌ Not started | — | Local dev only |
+| B5 | Observability — production-grade | ✅ Done | `d2c7f7a` (PR #33) | Prometheus endpoint, Micrometer timers, session gauge, correlation IDs |
+| B6 | Security hardening — TLS, redaction, audit log | ✅ Done | `287740e` (PR #34) | SecretRedactor, SqlSecurityValidator, AuditLog, require-ssl enforcement |
+| B7 | Tableau Server / Cloud deployment readiness | 🔜 Next | — | Local dev only |
 | B8 | MySQL wire-protocol endpoint (optional) | ❌ Not started | — | Dialect translator exists |
 
 ---
@@ -211,17 +211,106 @@ management:
 
 ---
 
+## B6 Implementation Summary
+
+**Issue:** #28
+**Build:** 199 tests, 0 failures (32 new tests)
+
+### New classes (`security` package)
+
+| Class | Role |
+|---|---|
+| `SecretRedactor` | Centralized utility: redacts sensitive keys (password, token, secret, credential, key, auth) from parameter maps. Used by `TableauTraceLogger` on startup params. |
+| `SqlSecurityValidator` | Rejects queries exceeding 1 MiB or containing null bytes (protocol injection). Maps to SQLSTATE `42501`. Error messages contain no SQL content. |
+| `AuditLog` | Always-on structured audit events via `skadi.audit` logger. Emits `audit_connect`, `audit_query`, `audit_error`. Never includes SQL text or parameter values. Log-injection protection via newline sanitisation. |
+
+### `SqlGatewayProperties.PgWire.Tls` config record
+
+```yaml
+pgwire:
+  tls:
+    enabled: false          # true: respond 'S' to SSLRequest and upgrade (needs keystore)
+    require-ssl: false      # true: reject clients that skip SSLRequest (SQLSTATE 28000)
+    keystore-path: /etc/skadi/server.p12
+    keystore-password: changeit
+    keystore-type: PKCS12
+```
+
+- `require-ssl=true` enforcement tested: raw TCP client skipping SSLRequest is rejected with an `ErrorResponse` containing SQLSTATE `28000` and the string "SSL"
+- Existing tests (no `Tls` config = null) are backward-compatible — null tls config allows all connections
+
+### `DatabricksProperties.toString()` masking
+
+Token value replaced with `***` in `toString()` — prevents token appearing in actuator endpoints or debug logs.
+
+### Instrumentation in `PgWireSession`
+
+| Hook | Event |
+|---|---|
+| Auth success | `AuditLog.connect(..., outcome=SUCCESS)` |
+| Auth failure (bad password, wrong message type) | `AuditLog.connect(..., outcome=DENIED)` |
+| require-ssl rejection | `AuditLog.connect(..., outcome=DENIED)` |
+| Each query completion | `AuditLog.query(user, schema, fingerprint, cacheTier, rows, latencyMs)` |
+| Each query error | `AuditLog.queryError(user, schema, fingerprint, sqlstate)` |
+| Before executor call | `SqlSecurityValidator.validate(sql)` — rejects oversized/malformed |
+
+`client = deriveClient(params)` moved before the auth check so it is available for audit logging on auth failure.
+
+### `TableauTraceLogger` hardening
+
+`formatParams()` now passes startup params through `SecretRedactor.redact()` before logging — belt-and-suspenders protection for clients that send unexpected sensitive keys in startup params.
+
+### Audit logger (`logback-spring.xml`)
+
+```xml
+<logger name="skadi.audit" level="INFO" additivity="false">
+    <appender-ref ref="CONSOLE"/>
+</logger>
+```
+
+`additivity=false` prevents duplication in root logger. Operators can redirect to a separate file appender for SIEM integration.
+
+### Tests (32 new, all passing)
+
+| Class | Tests | Coverage |
+|---|---|---|
+| `SecretRedactorTest` | 11 | Key detection, map redaction, immutability, edge cases |
+| `SqlSecurityValidatorTest` | 8 | Valid SQL, null byte, over-size, error message safety |
+| `AuditLogTest` | 9 | Connect/query/error events, log-injection protection, no SQL text in output |
+| `RequireSslTest` | 4 | require-ssl enforcement, null-config backward compat, raw-TCP error verification |
+
+### Known security gaps (L22–L24)
+
+| ID | Gap | Notes |
+|---|---|---|
+| L22 | STARTTLS upgrade not implemented | `SSLRequest` still returns `N` even when `tls.enabled=true`; full socket upgrade requires `SSLContext` from keystore (implementation deferred). Use stunnel/Envoy for production TLS. |
+| L23 | Schema ACL denials not audited | `applyPolicyFilter()` silently removes rows; no `audit_acl_deny` event. Filter is applied at metadata query level only. |
+| L24 | `keystorePassword` stored in plaintext in config | B6 acceptance criteria; use Spring's `jasypt` or env-var injection for production keystore credentials |
+
+---
+
 ## Next Recommended Issue
 
-**B6 — Security hardening (TLS, audit log, token redaction)**
+**B7 — Tableau Server / Cloud deployment readiness**
 
-B5 is complete. B6 scope:
-- TLS for pgwire (`SSLRequest` currently returns `N`)
-- Audit log: connection accepted/rejected, schema ACL denials
-- Confirm no secrets appear in any log or metric label
+B6 is complete. B7 scope:
+- Helm chart or Docker Compose deployment template
+- Deployment guide: TLS proxy (stunnel/Envoy) in front of gateway
+- Health check / readiness probe integration
+- Environment variable overrides for all secrets (Databricks token, keystore password)
 
 **Alternative: L14 — Fix Execute/Describe RowDescription duplication**
 Unlocks DBeaver/DataGrip extended-query compatibility.
+
+---
+
+## Technical Debt Discovered During B5
+
+| ID | Detail | Priority |
+|---|---|---|
+| L19 | No Grafana dashboard template | Low — metrics are Prometheus-ready; dashboard JSON is a follow-up deliverable |
+| L20 | `QueryCacheMetrics` (path-1b static singleton) not in Micrometer | Low — it is `private static final` in `PgWireSession`; `cache_tier` tags on `skadi_queries` give equivalent visibility |
+| L21 | No OpenTelemetry spans | Medium — `query_id` MDC + Databricks `ApplicationName` covers correlation; OTel spans require a dep decision |
 
 ---
 

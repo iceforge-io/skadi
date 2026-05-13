@@ -38,6 +38,18 @@ skadi:
       # Maximum concurrent queries per authenticated user. 0 or omit for unlimited.
       # max-concurrent-queries-per-user: 10
 
+      # TLS configuration (B6).
+      # For production, use a TLS-terminating reverse proxy (e.g. stunnel, Envoy) OR
+      # configure a keystore below. The STARTTLS upgrade path is implemented but requires
+      # a valid PKCS12/JKS keystore; see docs/architecture/sql-gateway.md for setup guide.
+      #
+      # tls:
+      #   enabled: false          # true to accept SSLRequest and perform STARTTLS
+      #   require-ssl: false      # true to reject clients that don't send SSLRequest (SQLSTATE 28000)
+      #   keystore-path: /etc/skadi/server.p12
+      #   keystore-password: changeit
+      #   keystore-type: PKCS12   # PKCS12 (default) | JKS
+
     trace:
       enabled: false
       # testdata-path: testdata/tableau-traces

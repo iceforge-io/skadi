@@ -45,7 +45,7 @@ public class InformationSchemaFacadeTest {
                     new org.iceforge.skadi.sqlgateway.config.SqlGatewayProperties.PgWire.Auth("trust", null, java.util.Map.of(), null);
 
             org.iceforge.skadi.sqlgateway.config.SqlGatewayProperties.PgWire props =
-                    new org.iceforge.skadi.sqlgateway.config.SqlGatewayProperties.PgWire(true, "127.0.0.1", 0, auth, null, null, null, null);
+                    new org.iceforge.skadi.sqlgateway.config.SqlGatewayProperties.PgWire(true, "127.0.0.1", 0, auth, null, null, null, null, null);
             PgWireServer s = new PgWireServer(props, null, null, null);
             s.start();
 

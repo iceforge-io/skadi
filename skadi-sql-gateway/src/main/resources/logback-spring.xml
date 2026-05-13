@@ -19,4 +19,14 @@
     <root level="INFO">
         <appender-ref ref="CONSOLE"/>
     </root>
+
+    <!--
+      Audit logger: always-on, dedicated to security/compliance events.
+      Operator guidance: to write audit events to a separate file, add a
+      RollingFileAppender here and reference it from this logger.
+      Setting additivity=false prevents audit events from duplicating into the root logger.
+    -->
+    <logger name="skadi.audit" level="INFO" additivity="false">
+        <appender-ref ref="CONSOLE"/>
+    </logger>
 </configuration>
