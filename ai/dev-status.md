@@ -1,9 +1,9 @@
 # Skadi — Development Status
 
-> Updated: 2026-05-13
+> Updated: 2026-05-14
 > Branch: `main`
-> Last commit: `bbbd80c` (architecture evolution docs — ADR-004 through ADR-007)
-> Build: ✅ 232 tests passing (verified pre-commit; full re-verify in progress)
+> Last commit: see Lane C section below
+> Build: ✅ 258 tests passing (`mvn verify -pl skadi-semantic -am`; gateway/server test counts unchanged)
 
 ---
 
@@ -110,7 +110,7 @@ Items prefixed `[critical]` should be addressed before production traffic.
 
 | ID | Severity | Detail |
 |---|---|---|
-| L10 | Medium | Gateway embeds own JDBC pool + cache instead of delegating to `skadi-server` — duplicates execution concerns; resolved by Lane C (semantic layer activates `skadi-server`) |
+| L10 | Medium | Gateway embeds own JDBC pool + cache instead of delegating to `skadi-server` — duplicates execution concerns; `SkadiServerQueryExecutionService` skeleton created in Lane C; HTTP activation deferred pending DQR-002 resolution |
 | L11 | Low | `JdbcArrowStreamer` duplicated in `skadi-core` and `skadi-server`; copies may diverge |
 | L13 | Low | `ai/query-flow.md` referenced in `ai/claude-instructions.md` but does not exist |
 
@@ -131,6 +131,71 @@ Items prefixed `[critical]` should be addressed before production traffic.
 
 ---
 
+## Lane C — Contracts, Skeletons, and Boundaries (Complete ✅)
+
+| Story | Description | Status | Commit | Issue |
+|---|---|---|---|---|
+| C1 | Platform boundary model (architecture doc) | ✅ | `61aa0a3` | #39 |
+| C6 | ADRs 008–010 and DQRs 001–003 | ✅ | `3e6c76e` + `0e2c4aa` | #44 |
+| C2.1 | `skadi-semantic` Maven module + package scaffold | ✅ | `b32d59f` | #55 |
+| C2.2 | Core semantic contract records | ✅ | `dc02035` | #49 |
+| C2.3 | Access policy and cache policy skeletons | ✅ | `8a1833c` | #50 |
+| C2.4 | ContractRegistry interface | ✅ | `51a21fe` | #51 |
+| C2.5 | JSON serialization fixtures and tests | ✅ | `95bf0f7` | #52 |
+| C2.6 | C2 documentation and implementation notes | ✅ | `5f45635` | #53 |
+| C3 | Query contract and output-shape metadata | ✅ | `7cec95e` | #41 |
+| C4 | Cache boundary contracts | ✅ | `e2377de` | #42 |
+| C5 | Service interfaces for semantic-aware execution | ✅ | `d462813` | #43 |
+| C7 | Cross-lane contract composition tests | ✅ | `d41868b` | #45 |
+| C8 | Dev-status and Lane C runbook | ✅ | — | #46 |
+
+All C-lane issues closed. No PRs — committed directly to `main`.
+
+---
+
+## Lane C Completed — Summary
+
+**Lane C scope:** contracts, skeletons, and boundaries only — no production behavior change.
+
+### What was built in Lane C
+
+| Capability | Key Components |
+|---|---|
+| Module scaffold | `skadi-semantic` Maven module; 5 packages; inherits from `skadi-parent` |
+| Semantic contract model | `SemanticContract`, `SemanticEntity`, `SemanticEndpoint`, `SemanticMeasure`, `SemanticDimension` |
+| Policy records | `SemanticAccessPolicy` (principal allow-lists), `SemanticCachePolicy` (TTL/NONE strategy) |
+| Contract registry | `ContractRegistry` interface; `InMemoryContractRegistry` (test-scope only) |
+| Query contract + shape | `SemanticQueryContract`, `SemanticOutputShape`, `SemanticOutputColumn`, `SemanticReference` |
+| Cache boundary | `CacheIdentity` (SHA-256 fingerprint), `CacheContract`, `CacheLookupRequest`, `CacheWriteRequest`, `CacheLookupResult`, `CacheWriteResult` |
+| Service interfaces | `QueryExecutionService`, `QueryMetadataService`, `SemanticResolutionService`, `CacheLookupService`, `LineageContextProvider` |
+| No-op implementations | `NoOpCacheLookupService`, `NoOpLineageContextProvider` (always-absent / always-empty) |
+| Skeleton | `SkadiServerQueryExecutionService` (throws `UnsupportedOperationException`; activation deferred to DQR-002) |
+| Request/result types | `ExecutionContext`, `QueryExecutionRequest`, `QueryExecutionResult`, `QueryMetadataRequest`, `QueryMetadataResult`, `SemanticResolutionRequest`, `SemanticResolutionResult` |
+| JSON test fixtures | `sample-contract.json`, `sample-query-contract.json`, `sample-cache-boundary.json` |
+| Architecture docs | `ai/architecture/platform-boundary-model.md`, ADR-008, ADR-009, ADR-010, DQR-001, DQR-002, DQR-003 |
+| Runbook | `ai/lane-c/lane-c-runbook.md` |
+
+### Test count by lane
+
+| Milestone | Tests | Added |
+|---|---|---|
+| B8 complete | 232 | — |
+| C2.5 complete | 245 | +13 |
+| C3 complete | 249 | +4 |
+| C4 complete | 254 | +5 |
+| C5 complete | 258 | +4 |
+| C7 complete | 258 | 0 (composition tests count toward C5 total) |
+
+### Lane C non-goals (enforced throughout)
+
+- No Spring beans in `skadi-semantic`
+- No SQL generation or dialect translation
+- No Databricks, S3, or REST calls
+- No YAML loading, JSON Schema validation, or UI runtime
+- No production code changes in `skadi-sql-gateway` or `skadi-server`
+
+---
+
 ## Architecture Evolution (Lane C+)
 
 Architecture docs and ADRs for the next phase are in:
@@ -140,8 +205,14 @@ Architecture docs and ADRs for the next phase are in:
 - `ai/adr/ADR-005-semantic-contracts.md`
 - `ai/adr/ADR-006-dashboard-brick-model.md`
 - `ai/adr/ADR-007-ai-chat-integration.md`
+- `ai/adr/ADR-008-lane-c-scope.md` — Lane C scope decision (Accepted)
+- `ai/adr/ADR-009-contracts-before-planning.md` — semantic contracts before planner (Accepted)
+- `ai/adr/ADR-010-cache-positioning.md` — cache stays below all consumers (Accepted)
+- `ai/dqr/DQR-001-contract-definition-format.md` — contract format: YAML vs JSON (Open)
+- `ai/dqr/DQR-002-semantic-execution-delegation.md` — execution topology (Open)
+- `ai/dqr/DQR-003-lineage-market-risk-brain-seams.md` — lineage/MRB integration seams (Open)
 
-Lane C has NOT been started. No Lane C code exists.
+Lane C is complete. The `skadi-semantic` module contains contracts, interfaces, and skeletons only. No production execution is wired. See `ai/lane-c/lane-c-runbook.md` for activation guidance.
 
 ---
 
