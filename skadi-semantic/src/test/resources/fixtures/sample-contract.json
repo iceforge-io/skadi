@@ -1,0 +1,82 @@
+{
+  "name": "mxl_risk",
+  "version": {
+    "value": "1.0.0"
+  },
+  "description": "MXL risk gold layer — daily PnL and Greeks",
+  "entity": {
+    "name": "mxl_risk",
+    "description": "MXL risk gold layer entity",
+    "endpoint": {
+      "catalog": "main",
+      "schema": "risk",
+      "table": "gold_risk"
+    },
+    "ruleRefs": [
+      {
+        "ruleId": "BCBS239-01",
+        "description": "Data lineage requirement"
+      }
+    ]
+  },
+  "measures": [
+    {
+      "name": "pnl",
+      "label": "Total PnL",
+      "expression": "SUM(pnl)",
+      "type": "DECIMAL",
+      "description": "Sum of daily profit and loss"
+    },
+    {
+      "name": "delta_risk",
+      "label": "Delta Risk",
+      "expression": "SUM(delta)",
+      "type": "DECIMAL",
+      "description": "Sum of delta sensitivities"
+    }
+  ],
+  "dimensions": [
+    {
+      "name": "cob_date",
+      "column": "cob_date",
+      "type": "DATE",
+      "label": "Close of Business Date",
+      "filterable": true,
+      "groupable": true
+    },
+    {
+      "name": "book",
+      "column": "book",
+      "type": "STRING",
+      "label": "Trading Book",
+      "filterable": true,
+      "groupable": true
+    },
+    {
+      "name": "desk",
+      "column": "desk",
+      "type": "STRING",
+      "label": "Trading Desk",
+      "filterable": true,
+      "groupable": false
+    }
+  ],
+  "accessPolicy": {
+    "allowedRoles": [
+      {"name": "risk_analyst"},
+      {"name": "risk_viewer"}
+    ],
+    "allowedPrincipals": [
+      {"type": "USER",  "name": "alice"},
+      {"type": "GROUP", "name": "risk-team"}
+    ],
+    "ruleRefs": [
+      {"ruleId": "GOV-042", "description": "Risk data governance policy"}
+    ]
+  },
+  "cachePolicy": {
+    "strategy": "TTL",
+    "ttlSeconds": 7200,
+    "ruleRefs": []
+  }
+}

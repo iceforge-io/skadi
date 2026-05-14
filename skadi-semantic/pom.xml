@@ -30,6 +30,13 @@
       <version>5.11.4</version>
       <scope>test</scope>
     </dependency>
+
+    <!-- JSON serialization tests only; version managed by spring-boot-dependencies BOM -->
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 
 </project>
