@@ -23,7 +23,7 @@ package org.iceforge.skadi.semantic.service;
  *     CacheEntryState.ABSENT);
  * }</pre>
  */
-public final class SkadiserverQueryExecutionService implements QueryExecutionService {
+public final class SkadiServerQueryExecutionService implements QueryExecutionService {
 
     @Override
     public QueryExecutionResult execute(QueryExecutionRequest request) {

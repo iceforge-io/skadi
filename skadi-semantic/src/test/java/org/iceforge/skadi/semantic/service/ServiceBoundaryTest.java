@@ -7,7 +7,6 @@ import org.iceforge.skadi.semantic.cache.CacheLookupRequest;
 import org.iceforge.skadi.semantic.cache.CacheWriteRequest;
 import org.iceforge.skadi.semantic.contract.SemanticAccessPolicy;
 import org.iceforge.skadi.semantic.contract.SemanticCachePolicy;
-import org.iceforge.skadi.semantic.contract.SemanticCacheStrategy;
 import org.iceforge.skadi.semantic.contract.SemanticContract;
 import org.iceforge.skadi.semantic.contract.SemanticContractVersion;
 import org.iceforge.skadi.semantic.contract.SemanticEndpoint;
@@ -279,7 +278,7 @@ class ServiceBoundaryTest {
 
     @Test
     void skadiserverSkeleton_throwsUnsupported() {
-        var svc = new SkadiserverQueryExecutionService();
+        var svc = new SkadiServerQueryExecutionService();
         var req = QueryExecutionRequest.sqlOnly(CTX, SQL, CacheContract.none());
         var ex  = assertThrows(UnsupportedOperationException.class, () -> svc.execute(req));
         assertTrue(ex.getMessage().contains("not yet activated"),

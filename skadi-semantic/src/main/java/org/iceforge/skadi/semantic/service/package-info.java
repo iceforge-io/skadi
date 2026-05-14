@@ -39,7 +39,7 @@
  *       returns ABSENT on every lookup; silently discards writes; for tests</li>
  *   <li>{@link org.iceforge.skadi.semantic.service.NoOpLineageContextProvider} —
  *       returns an empty reference list; for tests and inactive deployments</li>
- *   <li>{@link org.iceforge.skadi.semantic.service.SkadiserverQueryExecutionService} —
+ *   <li>{@link org.iceforge.skadi.semantic.service.SkadiServerQueryExecutionService} —
  *       skeleton that throws {@code UnsupportedOperationException}; the HTTP call
  *       to {@code POST /api/v1/queries} is not yet activated (see DQR-002)</li>
  * </ul>

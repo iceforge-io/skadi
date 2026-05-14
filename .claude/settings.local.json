@@ -28,7 +28,20 @@
       "Bash(wait)",
       "Bash(npx --no markdownlint --version)",
       "Bash(npx *)",
-      "Bash(awk NR>=108 && NR<=135 {printf \"%d: %s\\\\n\", NR, $0} *)"
+      "Bash(awk NR>=108 && NR<=135 {printf \"%d: %s\\\\n\", NR, $0} *)",
+      "Bash(gh repo *)",
+      "Bash(gh label *)",
+      "Bash(./mvnw verify *)",
+      "Bash(mvn verify *)",
+      "Bash(mvn dependency:tree -pl skadi-semantic -q)",
+      "Bash(mvn dependency:resolve -pl skadi-semantic -q --no-transfer-progress)",
+      "Bash(mvn dependency:tree -pl skadi-semantic --no-transfer-progress)",
+      "Bash(mvn dependency:resolve -pl skadi-semantic --no-transfer-progress -Dincludes=\"com.fasterxml.jackson*\")",
+      "Bash(mvn help:evaluate -Dexpression=\"jackson-bom.version\" -pl skadi-semantic -q --no-transfer-progress)",
+      "Bash(mvn help:evaluate -Dexpression=\"jackson-databind.version\" -pl skadi-parent --no-transfer-progress -q)",
+      "Bash(mvn help:evaluate -Dexpression=\"jackson-bom.version\" -pl skadi-parent --no-transfer-progress -q)",
+      "Bash(mvn dependency:tree -pl skadi-sql-gateway --no-transfer-progress)",
+      "Bash(mvn dependency:tree -pl skadi-semantic)"
     ]
   }
 }

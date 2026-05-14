@@ -6,7 +6,7 @@ package org.iceforge.skadi.semantic.service;
  * <p>Implementations translate a {@link QueryExecutionRequest} into a
  * {@link QueryExecutionResult} by dispatching to a backend execution engine.
  * In Lane C, the only implementation is a skeleton that documents the seam
- * without activating real execution (see {@link SkadiserverQueryExecutionService}).
+ * without activating real execution (see {@link SkadiServerQueryExecutionService}).
  *
  * <p><strong>SQL-first execution (current):</strong> the request carries a raw
  * SQL string. The implementation normalises the SQL, checks the cache, and —

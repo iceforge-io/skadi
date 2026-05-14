@@ -31,9 +31,9 @@
         ],
         "milestone": null,
         "number": 60,
-        "state": "OPEN",
+        "state": "CLOSED",
         "title": "Lane C: C2.6 \u2014 Add C2 documentation and implementation notes",
-        "updatedAt": "2026-05-14T22:16:49Z",
+        "updatedAt": "2026-05-14T22:22:46Z",
         "url": "https://github.com/iceforge-io/skadi/issues/60"
     },
     {
@@ -62,9 +62,9 @@
         ],
         "milestone": null,
         "number": 59,
-        "state": "OPEN",
+        "state": "CLOSED",
         "title": "Lane C: C2.5 \u2014 Add JSON serialization fixtures and tests",
-        "updatedAt": "2026-05-14T22:16:39Z",
+        "updatedAt": "2026-05-14T22:22:44Z",
         "url": "https://github.com/iceforge-io/skadi/issues/59"
     },
     {
@@ -93,9 +93,9 @@
         ],
         "milestone": null,
         "number": 58,
-        "state": "OPEN",
+        "state": "CLOSED",
         "title": "Lane C: C2.4 \u2014 Add ContractRegistry interface",
-        "updatedAt": "2026-05-14T22:16:29Z",
+        "updatedAt": "2026-05-14T22:22:42Z",
         "url": "https://github.com/iceforge-io/skadi/issues/58"
     },
     {
@@ -124,9 +124,9 @@
         ],
         "milestone": null,
         "number": 57,
-        "state": "OPEN",
+        "state": "CLOSED",
         "title": "Lane C: C2.3 \u2014 Add access policy and cache policy skeletons",
-        "updatedAt": "2026-05-14T22:16:20Z",
+        "updatedAt": "2026-05-14T22:22:40Z",
         "url": "https://github.com/iceforge-io/skadi/issues/57"
     },
     {
@@ -155,9 +155,9 @@
         ],
         "milestone": null,
         "number": 56,
-        "state": "OPEN",
+        "state": "CLOSED",
         "title": "Lane C: C2.2 \u2014 Add core semantic contract records",
-        "updatedAt": "2026-05-14T22:16:11Z",
+        "updatedAt": "2026-05-14T22:22:39Z",
         "url": "https://github.com/iceforge-io/skadi/issues/56"
     },
     {
@@ -186,9 +186,9 @@
         ],
         "milestone": null,
         "number": 55,
-        "state": "OPEN",
+        "state": "CLOSED",
         "title": "Lane C: C2.1 \u2014 Establish semantic contract module/package boundary",
-        "updatedAt": "2026-05-14T22:16:02Z",
+        "updatedAt": "2026-05-14T22:22:37Z",
         "url": "https://github.com/iceforge-io/skadi/issues/55"
     },
     {
@@ -217,9 +217,9 @@
         ],
         "milestone": null,
         "number": 54,
-        "state": "OPEN",
+        "state": "CLOSED",
         "title": "Lane C: C2 Implementation Epic \u2014 Semantic Contract Skeletons",
-        "updatedAt": "2026-05-14T22:15:52Z",
+        "updatedAt": "2026-05-14T22:22:35Z",
         "url": "https://github.com/iceforge-io/skadi/issues/54"
     },
     {
@@ -254,9 +254,9 @@
         ],
         "milestone": null,
         "number": 53,
-        "state": "OPEN",
+        "state": "CLOSED",
         "title": "Lane C: C2.6 \u2014 Add C2 documentation and implementation notes",
-        "updatedAt": "2026-05-14T22:12:51Z",
+        "updatedAt": "2026-05-14T23:05:36Z",
         "url": "https://github.com/iceforge-io/skadi/issues/53"
     },
     {
@@ -285,9 +285,9 @@
         ],
         "milestone": null,
         "number": 52,
-        "state": "OPEN",
+        "state": "CLOSED",
         "title": "Lane C: C2.5 \u2014 Add JSON serialization fixtures and tests",
-        "updatedAt": "2026-05-14T22:12:50Z",
+        "updatedAt": "2026-05-14T23:00:55Z",
         "url": "https://github.com/iceforge-io/skadi/issues/52"
     },
     {
@@ -316,9 +316,9 @@
         ],
         "milestone": null,
         "number": 51,
-        "state": "OPEN",
+        "state": "CLOSED",
         "title": "Lane C: C2.4 \u2014 Add ContractRegistry interface",
-        "updatedAt": "2026-05-14T22:12:49Z",
+        "updatedAt": "2026-05-14T22:53:08Z",
         "url": "https://github.com/iceforge-io/skadi/issues/51"
     },
     {
@@ -347,9 +347,9 @@
         ],
         "milestone": null,
         "number": 50,
-        "state": "OPEN",
+        "state": "CLOSED",
         "title": "Lane C: C2.3 \u2014 Add access policy and cache policy skeletons",
-        "updatedAt": "2026-05-14T22:12:47Z",
+        "updatedAt": "2026-05-14T22:49:24Z",
         "url": "https://github.com/iceforge-io/skadi/issues/50"
     },
     {
@@ -378,9 +378,9 @@
         ],
         "milestone": null,
         "number": 49,
-        "state": "OPEN",
+        "state": "CLOSED",
         "title": "Lane C: C2.2 \u2014 Add core semantic contract records",
-        "updatedAt": "2026-05-14T22:12:46Z",
+        "updatedAt": "2026-05-14T22:33:30Z",
         "url": "https://github.com/iceforge-io/skadi/issues/49"
     },
     {
@@ -409,9 +409,9 @@
         ],
         "milestone": null,
         "number": 48,
-        "state": "OPEN",
+        "state": "CLOSED",
         "title": "Lane C: C2.1 \u2014 Establish semantic contract module/package boundary",
-        "updatedAt": "2026-05-14T22:12:44Z",
+        "updatedAt": "2026-05-14T22:42:53Z",
         "url": "https://github.com/iceforge-io/skadi/issues/48"
     },
     {
@@ -440,9 +440,9 @@
         ],
         "milestone": null,
         "number": 47,
-        "state": "OPEN",
+        "state": "CLOSED",
         "title": "Lane C: C2 Implementation Epic \u2014 Semantic Contract Skeletons",
-        "updatedAt": "2026-05-14T22:12:43Z",
+        "updatedAt": "2026-05-14T23:06:47Z",
         "url": "https://github.com/iceforge-io/skadi/issues/47"
     },
     {
@@ -669,9 +669,9 @@
         ],
         "milestone": null,
         "number": 40,
-        "state": "OPEN",
+        "state": "CLOSED",
         "title": "Lane C: C2 \u2014 Introduce semantic contract skeletons",
-        "updatedAt": "2026-05-14T13:33:54Z",
+        "updatedAt": "2026-05-14T23:07:12Z",
         "url": "https://github.com/iceforge-io/skadi/issues/40"
     },
     {
