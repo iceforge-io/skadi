@@ -1,0 +1,73 @@
+{
+  "name": "mxl_risk_pnl_by_book",
+  "description": "Daily PnL aggregated by trading book",
+  "sourceContract": "mxl_risk",
+  "version": { "value": "1.0.0" },
+  "outputShape": {
+    "columns": [
+      {
+        "name": "cob_date",
+        "displayName": "Close of Business Date",
+        "fieldType": "DATE",
+        "nullable": false,
+        "role": "TIMESTAMP",
+        "formatHint": {
+          "pattern": "yyyy-MM-dd",
+          "unit": null,
+          "currency": null,
+          "precision": null,
+          "scale": null
+        },
+        "references": []
+      },
+      {
+        "name": "book",
+        "displayName": "Trading Book",
+        "fieldType": "STRING",
+        "nullable": false,
+        "role": "DIMENSION",
+        "formatHint": null,
+        "references": [
+          {
+            "source": "databricks",
+            "type": "column",
+            "id": "main.risk.gold_risk.book",
+            "name": "book"
+          }
+        ]
+      },
+      {
+        "name": "pnl",
+        "displayName": "Total PnL",
+        "fieldType": "DECIMAL",
+        "nullable": true,
+        "role": "MEASURE",
+        "formatHint": {
+          "pattern": "#,##0.00",
+          "unit": "GBP",
+          "currency": "GBP",
+          "precision": 2,
+          "scale": 2
+        },
+        "references": [
+          {
+            "source": "bcbs239",
+            "type": "data-element",
+            "id": "BCBS239-PNL-001",
+            "name": "Profit and Loss"
+          }
+        ]
+      }
+    ],
+    "rowCountHint": null,
+    "references": [
+      {
+        "source": "lineage",
+        "type": "query",
+        "id": "mxl_risk_pnl_by_book_v1",
+        "name": "PnL by Book"
+      }
+    ]
+  },
+  "references": []
+}

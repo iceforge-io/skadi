@@ -1,6 +1,6 @@
 # skadi-semantic
 
-Lane C module — semantic contract skeletons (C2 complete).
+Lane C module — semantic contract skeletons (C2 complete, C3 complete).
 
 Plain Java library. No Spring Boot, no SQL execution, no YAML loading,
 no REST endpoints, no Databricks calls.
@@ -37,8 +37,9 @@ here after Lane C completes. C3/C4/C5 extend these types without changing them.
 
 ```
 org.iceforge.skadi.semantic            module root (package-info only)
-org.iceforge.skadi.semantic.contract   vocabulary records and enums
-org.iceforge.skadi.semantic.registry   ContractRegistry interface
+org.iceforge.skadi.semantic.contract   vocabulary records and enums (C2)
+org.iceforge.skadi.semantic.registry   ContractRegistry interface (C2)
+org.iceforge.skadi.semantic.query      query contract and output-shape metadata (C3)
 ```
 
 ---
@@ -103,37 +104,40 @@ for unit tests only. It must not be used in production code.
 
 ---
 
+## Records — query contract and output-shape metadata (`query` package, C3)
+
+| Type | Purpose |
+| --- | --- |
+| `SemanticQueryContract` | Named, versioned query contract: name, source contract, version, output shape, references |
+| `SemanticOutputShape` | Ordered column list with optional row-count hint; `findColumn(name)` helper |
+| `SemanticOutputColumn` | Single output column: name, display name, field type, nullable, role, format hint, references |
+| `SemanticOutputRole` | Enum: `MEASURE` `DIMENSION` `TIMESTAMP` `IDENTIFIER` `LABEL` `DERIVED` |
+| `SemanticFormatHint` | Display-only hints: pattern, unit, currency, precision, scale (all nullable) |
+| `SemanticReference` | Lightweight pointer: source / type / id / name — no resolution, no external calls |
+
+`SemanticFieldType` and `SemanticContractVersion` from C2 are reused here.
+`SemanticFormatHint` is nullable on `SemanticOutputColumn`; `rowCountHint` is nullable on `SemanticOutputShape`.
+All `List` fields are defensively copied.
+
+---
+
 ## What does not exist yet
 
 | Missing capability | Where it belongs |
 | --- | --- |
-| `SemanticQuery` record | C3 — query contract and output-shape metadata |
-| `SemanticCompiler` interface | C3 |
 | `CacheContract` / `CacheIdentity` records | C4 |
 | `SemanticExecutor` interface | C5 |
 | Contract file loader (YAML/JSON/other) | Post-DQR-001 resolution |
 | Runtime registry population | Post-Lane C |
 | Access policy enforcement | Post-Lane C semantic policy enforcer |
-| SQL generation | Post-Lane C semantic compiler implementation |
+| SQL generation or semantic compiler implementation | Post-Lane C |
 | Semantic planner / rule engine | Post-Lane C |
 | UI bricks | Lane D |
 | AI Chat / intent resolution | Lane E |
 
 ---
 
-## Extending C2 in C3, C4, C5
-
-### C3 — Query contract and output-shape metadata
-
-Add to the `contract` or a new `query` package:
-- `SemanticQuery` record — dataset name, metric names, dimension names, filters
-- `OutputShape` record — column names, types, row count hint
-- `SemanticCompiler` interface — `compile(SemanticQuery): String` (returns Databricks SQL)
-- Stub implementation returns a fixture SQL string
-
-Do NOT wire `SemanticCompiler` to `SqlDialectBridge` in C3. Do NOT introduce a planner.
-The `SemanticQuery` type uses field names from `SemanticContract` (via `SemanticMeasure.name()`
-and `SemanticDimension.name()`) — it must not embed raw SQL.
+## Extending C3 in C4, C5
 
 ### C4 — Cache contract boundary
 
@@ -158,7 +162,7 @@ before delegating to execution.
 
 ---
 
-## Lane C story sequence (C2 complete)
+## Lane C story sequence (C2 + C3 complete)
 
 | Story | Issue | Status | Deliverable |
 | --- | --- | --- | --- |
@@ -168,6 +172,7 @@ before delegating to execution.
 | C2.4 | #58 | ✅ | `ContractRegistry` interface and `DuplicateContractException` |
 | C2.5 | #59 | ✅ | JSON serialization fixture and tests |
 | C2.6 | #60 | ✅ | Documentation and implementation notes (this file) |
+| C3   | #41 | ✅ | Query contract and output-shape metadata (`query` package) |
 
 ---
 
