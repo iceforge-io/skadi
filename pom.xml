@@ -13,6 +13,7 @@
     <module>skadi-core</module>
     <module>skadi-server</module>
     <module>skadi-sql-gateway</module>
+    <module>skadi-semantic</module>
   </modules>
 
   <properties>
