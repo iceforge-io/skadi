@@ -1,0 +1,34 @@
+{
+  "identity": {
+    "normalizedSql": "SELECT SUM(pnl) FROM main.risk.gold_risk",
+    "principalName": "alice",
+    "datasetVersionToken": null
+  },
+  "contract": {
+    "strategy": "TTL",
+    "ttlSeconds": 300
+  },
+  "lookupRequest": {
+    "identity": {
+      "normalizedSql": "SELECT SUM(pnl) FROM main.risk.gold_risk",
+      "principalName": "alice",
+      "datasetVersionToken": null
+    },
+    "contract": {
+      "strategy": "TTL",
+      "ttlSeconds": 300
+    }
+  },
+  "writeRequest": {
+    "identity": {
+      "normalizedSql": "SELECT SUM(pnl) FROM main.risk.gold_risk",
+      "principalName": "alice",
+      "datasetVersionToken": null
+    },
+    "contract": {
+      "strategy": "TTL",
+      "ttlSeconds": 300
+    },
+    "estimatedSizeBytes": 8192
+  }
+}

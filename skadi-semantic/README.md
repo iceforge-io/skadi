@@ -1,6 +1,6 @@
 # skadi-semantic
 
-Lane C module — semantic contract skeletons (C2 complete, C3 complete).
+Lane C module — semantic contract skeletons (C2 + C3 + C4 complete).
 
 Plain Java library. No Spring Boot, no SQL execution, no YAML loading,
 no REST endpoints, no Databricks calls.
@@ -40,6 +40,7 @@ org.iceforge.skadi.semantic            module root (package-info only)
 org.iceforge.skadi.semantic.contract   vocabulary records and enums (C2)
 org.iceforge.skadi.semantic.registry   ContractRegistry interface (C2)
 org.iceforge.skadi.semantic.query      query contract and output-shape metadata (C3)
+org.iceforge.skadi.semantic.cache      cache boundary contracts (C4)
 ```
 
 ---
@@ -125,7 +126,6 @@ All `List` fields are defensively copied.
 
 | Missing capability | Where it belongs |
 | --- | --- |
-| `CacheContract` / `CacheIdentity` records | C4 |
 | `SemanticExecutor` interface | C5 |
 | Contract file loader (YAML/JSON/other) | Post-DQR-001 resolution |
 | Runtime registry population | Post-Lane C |
@@ -137,16 +137,7 @@ All `List` fields are defensively copied.
 
 ---
 
-## Extending C3 in C4, C5
-
-### C4 — Cache contract boundary
-
-Add to a new `cache` package (or a top-level record alongside the registry):
-- `CacheContract` record — wraps `SemanticCachePolicy`'s strategy + TTL as a boundary type
-- `CacheIdentity` record — normalised SQL + principal + optional dataset version token
-
-Do NOT change `skadi-server` cache internals. `CacheContract` is a hint the semantic layer
-passes outward; the cache layer decides whether to honour it.
+## Extending C4 in C5
 
 ### C5 — Service interfaces for semantic-aware execution
 
@@ -173,6 +164,7 @@ before delegating to execution.
 | C2.5 | #59 | ✅ | JSON serialization fixture and tests |
 | C2.6 | #60 | ✅ | Documentation and implementation notes (this file) |
 | C3   | #41 | ✅ | Query contract and output-shape metadata (`query` package) |
+| C4   | #42 | ✅ | Cache boundary contracts (`cache` package) |
 
 ---
 
