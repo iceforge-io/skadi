@@ -134,8 +134,7 @@ JDBC, bypassing `skadi-server` entirely. This produces the dual-path topology sh
 diagram (gateway → Databricks direct; semantic layer → `skadi-server` → Databricks) and is
 the known architectural gap recorded as debt item L10. Whether the gateway should eventually
 route through `skadi-server` to deduplicate the JDBC pool is an open design question — see
-ADR-004 Open Question Q3. This question is deferred to C6 for a DQR; no convergence work
-happens in Lane C.
+ADR-004 Open Question Q3 and DQR-002. No convergence work happens in Lane C.
 
 ---
 
@@ -180,20 +179,20 @@ interface definition.
 
 | Owns | Does NOT Own |
 | --- | --- |
-| Contract definitions in a storage format decided by C6 (ADR-005 proposes YAML) | Wire-protocol sessions |
+| Contract definitions in a storage format tracked by DQR-001 (ADR-005 proposes YAML) | Wire-protocol sessions |
 | `ContractRegistry` interface — loading, validating, and exposing contracts | Direct JDBC access to Databricks |
 | Semantic compiler interface — metric + dimension selections → Databricks SQL | Result caching (delegated to `skadi-server`) |
 | Governance/policy interface — principal access to dataset/metric/dimension | Physical table names in client-facing error messages |
 | `POST /semantic/v1/query` REST API (proposed endpoint path) | Query execution (delegated to `skadi-server`) |
 | Audit log events for semantic access denials | UI rendering or dashboard layout |
-| Contract versioning (strategy decided by C6) | LLM calls or intent resolution (future Lane E) |
+| Contract versioning (strategy tracks DQR-001) | LLM calls or intent resolution (future Lane E) |
 
 **Lane C boundary (what is built in C2–C5):** Java records and interfaces for
 `SemanticContract`, `ContractRegistry`, `SemanticQuery`, `SemanticCompiler`,
 `SemanticPolicyEnforcer`, and `SemanticExecutor`. All implementations are no-op stubs
 returning fixture data. The `POST /semantic/v1/query` endpoint shape is defined but backed
 by a stub. No live call to `skadi-server` in Lane C. Contract storage format (YAML, JSON, or
-other) is an open decision for C6 — see ADR-005 (status: Proposed) for the leading candidate.
+other) is tracked by DQR-001 — see ADR-005 (status: Proposed) for the leading candidate.
 
 **What is NOT built in Lane C:** The semantic planner, entitlement engine beyond basic role
 checks, intent resolution, response generation, or any LLM integration.
@@ -323,8 +322,8 @@ redefines scope and blocks Lane D/E.
   cache config). This is a data structure, not a service.
 - Define the `ContractRegistry` interface: `register(SemanticContract)`,
   `forPrincipal(Principal): List<SemanticContract>`, `findByName(String)`.
-- Do **not** implement contract file loading from any storage format — the format (YAML, JSON,
-  or other) is an open decision deferred to C6. C2 defines the Java type only.
+- Do **not** implement contract file loading from any storage format — the format is tracked
+  by DQR-001; C2 defines the Java type only.
 - Do **not** implement startup validation or Spring beans — records and interfaces only.
 
 ### C3 — Query contract and output-shape metadata
@@ -366,7 +365,7 @@ redefines scope and blocks Lane D/E.
 ### C7 — Contract-focused tests
 
 - Tests must be deterministic and offline — no Databricks, no S3, no Tableau.
-- Test `SemanticContract` serialization round-trips (use JSON fixtures; YAML support TBD by C6).
+- Test `SemanticContract` serialization round-trips (use JSON fixtures; YAML support pending DQR-001).
 - Test `ContractRegistry` stub: `forPrincipal` with access granted and denied.
 - Test `SemanticQuery` → `OutputShape` structural consistency.
 - Test `CacheIdentity` fingerprint uniqueness for distinct inputs.
@@ -401,9 +400,12 @@ redefines scope and blocks Lane D/E.
 | ADR | Relevance to Lane C |
 | --- | --- |
 | ADR-004: Semantic Query Layer | Proposed `skadi-semantic` module, `SemanticCompiler` interface, `POST /semantic/v1/query` endpoint (all candidate names) — Lane C C2–C5 stub these |
-| ADR-005: Semantic Contracts | Status: **Proposed** — YAML + JSON Schema is the leading candidate for contract storage format; the decision is confirmed in C6. `SemanticContract` record and `ContractRegistry` interface are Lane C C2 deliverables regardless of format. |
+| ADR-005: Semantic Contracts | Status: **Proposed** — YAML + JSON Schema is the leading candidate tracked by DQR-001; `SemanticContract` record and `ContractRegistry` interface are Lane C C2 deliverables regardless of format |
 | ADR-006: Dashboard Brick Model | UI Brick Runtime — Lane C only defines the endpoint it will call; runtime is Lane D |
-| ADR-007: AI Chat Integration | AI Chat Buddy — Lane C only defines the `ContractRegistry.forPrincipal` interface; no LLM code |
+| ADR-007: AI Chat Integration | AI Chat Buddy — Lane C only defines the `ContractRegistry.forPrincipal` interface; `ContextProvider` seam tracked by DQR-003; no LLM code in Lane C |
+| ADR-008: Lane C Scope | Authoritative scope boundary for this lane — see `ai/adr/ADR-008-lane-c-scope.md` |
+| ADR-009: Contracts Before Planning | Why C2/C3 precede the semantic planner — see `ai/adr/ADR-009-contracts-before-planning.md` |
+| ADR-010: Cache Positioning | Cache stays below all consumers; `CacheContract`/`CacheIdentity` from C4 — see `ai/adr/ADR-010-cache-positioning.md` |
 
 ---
 
@@ -411,12 +413,12 @@ redefines scope and blocks Lane D/E.
 
 - No semantic planning or query optimization
 - No contract loading from any storage backend — C2–C5 define interfaces and stubs only;
-  storage format and loading are deferred to post-C6 decisions
+  storage format is tracked by DQR-001 (see `ai/dqr/DQR-001-contract-definition-format.md`)
 - No live Databricks connection originating from the candidate `skadi-semantic` module
 - No UI runtime or React components
 - No LLM integration or intent resolution
 - No entitlement engine — access control in Lane C is limited to role-name checks on
   stub `SemanticContract` fixtures, not a production enforcement path
 - No changes to production Java code in `skadi-sql-gateway` or `skadi-server`
-- No convergence of the gateway's direct JDBC path with `skadi-server` (design question
-  deferred to C6 DQR)
+- No convergence of the gateway's direct JDBC path with `skadi-server` (tracked by DQR-002;
+  see `ai/dqr/DQR-002-semantic-execution-delegation.md`)
