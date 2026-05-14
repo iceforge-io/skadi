@@ -25,7 +25,10 @@
       "Bash(python3 *)",
       "Bash(gh pr *)",
       "Bash(chmod +x *)",
-      "Bash(wait)"
+      "Bash(wait)",
+      "Bash(npx --no markdownlint --version)",
+      "Bash(npx *)",
+      "Bash(awk NR>=108 && NR<=135 {printf \"%d: %s\\\\n\", NR, $0} *)"
     ]
   }
 }
