@@ -24,8 +24,13 @@ import java.util.Objects;
  *   <li>Contain Spring beans or runtime wiring</li>
  * </ul>
  *
- * <p>Access policy and cache policy metadata are added in C2.3
- * ({@code SemanticAccessPolicy}, {@code SemanticCachePolicy}).
+ * <p>Access policy and cache policy metadata (added in C2.3):
+ * <ul>
+ *   <li>{@link SemanticAccessPolicy} — declares allowed roles, principals, and
+ *       governance rules; descriptive only, no enforcement here</li>
+ *   <li>{@link SemanticCachePolicy} — declares the preferred cache strategy and TTL;
+ *       a hint to the cache layer, not an eviction command</li>
+ * </ul>
  *
  * <pre>{@code
  * var contract = new SemanticContract(
@@ -38,7 +43,9 @@ import java.util.Objects;
  *                                 SemanticFieldType.DECIMAL, "")),
  *     List.of(new SemanticDimension("book", "book",
  *                                   SemanticFieldType.STRING, "Trading Book",
- *                                   true, true)));
+ *                                   true, true)),
+ *     SemanticAccessPolicy.unrestricted(),
+ *     SemanticCachePolicy.ttl(300L));
  * }</pre>
  */
 public record SemanticContract(
@@ -47,18 +54,24 @@ public record SemanticContract(
         String description,
         SemanticEntity entity,
         List<SemanticMeasure> measures,
-        List<SemanticDimension> dimensions) {
+        List<SemanticDimension> dimensions,
+        SemanticAccessPolicy accessPolicy,
+        SemanticCachePolicy cachePolicy) {
 
     /**
-     * @param name        unique contract identifier used in semantic queries
-     *                    and dashboard bricks; must not be null or blank
-     * @param version     contract version; must not be null
-     * @param description human-readable description; may be empty but not null
-     * @param entity      logical entity and physical binding; must not be null
-     * @param measures    metric definitions available for querying; must not be
-     *                    null; the list is copied defensively
-     * @param dimensions  dimension definitions available for filtering and
-     *                    grouping; must not be null; the list is copied defensively
+     * @param name         unique contract identifier used in semantic queries
+     *                     and dashboard bricks; must not be null or blank
+     * @param version      contract version; must not be null
+     * @param description  human-readable description; may be empty but not null
+     * @param entity       logical entity and physical binding; must not be null
+     * @param measures     metric definitions available for querying; must not be
+     *                     null; the list is copied defensively
+     * @param dimensions   dimension definitions available for filtering and
+     *                     grouping; must not be null; the list is copied defensively
+     * @param accessPolicy declared access restrictions; must not be null;
+     *                     use {@link SemanticAccessPolicy#unrestricted()} for no restrictions
+     * @param cachePolicy  declared cache hint; must not be null;
+     *                     use {@link SemanticCachePolicy#none()} to opt out of caching
      */
     public SemanticContract {
         Objects.requireNonNull(name, "name must not be null");
@@ -67,6 +80,8 @@ public record SemanticContract(
         Objects.requireNonNull(entity, "entity must not be null");
         Objects.requireNonNull(measures, "measures must not be null");
         Objects.requireNonNull(dimensions, "dimensions must not be null");
+        Objects.requireNonNull(accessPolicy, "accessPolicy must not be null");
+        Objects.requireNonNull(cachePolicy, "cachePolicy must not be null");
         if (name.isBlank()) throw new IllegalArgumentException("name must not be blank");
         measures   = List.copyOf(measures);
         dimensions = List.copyOf(dimensions);

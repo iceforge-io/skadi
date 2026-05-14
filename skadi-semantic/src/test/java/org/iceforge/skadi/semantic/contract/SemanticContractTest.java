@@ -39,7 +39,9 @@ class SemanticContractTest {
                 "MXL risk gold layer",
                 entity(),
                 List.of(pnlMeasure()),
-                List.of(bookDim()));
+                List.of(bookDim()),
+                SemanticAccessPolicy.unrestricted(),
+                SemanticCachePolicy.ttl(300L));
     }
 
     // ── SemanticContractVersion ───────────────────────────────────────────────
@@ -187,7 +189,8 @@ class SemanticContractTest {
         mutable.add(pnlMeasure());
         var c = new SemanticContract(
                 "c", new SemanticContractVersion("1.0.0"), "",
-                entity(), mutable, List.of());
+                entity(), mutable, List.of(),
+                SemanticAccessPolicy.unrestricted(), SemanticCachePolicy.none());
         mutable.add(pnlMeasure());           // mutate original
         assertEquals(1, c.measures().size()); // contract unaffected
     }
@@ -204,13 +207,39 @@ class SemanticContractTest {
         assertThrows(IllegalArgumentException.class,
                 () -> new SemanticContract(
                         " ", new SemanticContractVersion("1.0.0"), "",
-                        entity(), List.of(), List.of()));
+                        entity(), List.of(), List.of(),
+                        SemanticAccessPolicy.unrestricted(), SemanticCachePolicy.none()));
     }
 
     @Test
     void contract_rejectsNullVersion() {
         assertThrows(NullPointerException.class,
                 () -> new SemanticContract(
-                        "c", null, "", entity(), List.of(), List.of()));
+                        "c", null, "", entity(), List.of(), List.of(),
+                        SemanticAccessPolicy.unrestricted(), SemanticCachePolicy.none()));
+    }
+
+    @Test
+    void contract_holdsAccessAndCachePolicy() {
+        var c = contract();
+        assertTrue(c.accessPolicy().isEmpty());
+        assertEquals(SemanticCacheStrategy.TTL, c.cachePolicy().strategy());
+        assertEquals(300L, c.cachePolicy().ttlSeconds());
+    }
+
+    @Test
+    void contract_rejectsNullAccessPolicy() {
+        assertThrows(NullPointerException.class,
+                () -> new SemanticContract(
+                        "c", new SemanticContractVersion("1.0.0"), "", entity(),
+                        List.of(), List.of(), null, SemanticCachePolicy.none()));
+    }
+
+    @Test
+    void contract_rejectsNullCachePolicy() {
+        assertThrows(NullPointerException.class,
+                () -> new SemanticContract(
+                        "c", new SemanticContractVersion("1.0.0"), "", entity(),
+                        List.of(), List.of(), SemanticAccessPolicy.unrestricted(), null));
     }
 }
