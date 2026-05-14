@@ -1,6 +1,6 @@
 # skadi-semantic
 
-Lane C module — semantic contract skeletons (C2 + C3 + C4 complete).
+Lane C module — semantic contract skeletons (C2 + C3 + C4 + C5 complete).
 
 Plain Java library. No Spring Boot, no SQL execution, no YAML loading,
 no REST endpoints, no Databricks calls.
@@ -41,6 +41,7 @@ org.iceforge.skadi.semantic.contract   vocabulary records and enums (C2)
 org.iceforge.skadi.semantic.registry   ContractRegistry interface (C2)
 org.iceforge.skadi.semantic.query      query contract and output-shape metadata (C3)
 org.iceforge.skadi.semantic.cache      cache boundary contracts (C4)
+org.iceforge.skadi.semantic.service    service boundary interfaces and context records (C5)
 ```
 
 ---
@@ -126,8 +127,7 @@ All `List` fields are defensively copied.
 
 | Missing capability | Where it belongs |
 | --- | --- |
-| `SemanticExecutor` interface | C5 |
-| Contract file loader (YAML/JSON/other) | Post-DQR-001 resolution |
+| Contract file loader (YAML/JSON/other) | Post-DQR-001 |
 | Runtime registry population | Post-Lane C |
 | Access policy enforcement | Post-Lane C semantic policy enforcer |
 | SQL generation or semantic compiler implementation | Post-Lane C |
@@ -136,20 +136,6 @@ All `List` fields are defensively copied.
 | AI Chat / intent resolution | Lane E |
 
 ---
-
-## Extending C4 in C5
-
-### C5 — Service interfaces for semantic-aware execution
-
-Add to a new `execution` package:
-- `SemanticExecutor` interface — `execute(SemanticQuery, String principal): ArrowResult`
-- `StubSemanticExecutor` — returns fixture Arrow data
-- `SkadiserverSemanticExecutor` skeleton — `TODO: activate HTTP call to POST /api/v1/queries`
-
-Wire `StubSemanticExecutor` as the active implementation behind a config flag.
-Do NOT implement the live HTTP call to `skadi-server` in Lane C.
-`SemanticExecutor` depends on `ContractRegistry` (this package) to look up contracts
-before delegating to execution.
 
 ---
 
@@ -165,6 +151,7 @@ before delegating to execution.
 | C2.6 | #60 | ✅ | Documentation and implementation notes (this file) |
 | C3   | #41 | ✅ | Query contract and output-shape metadata (`query` package) |
 | C4   | #42 | ✅ | Cache boundary contracts (`cache` package) |
+| C5   | #43 | ✅ | Service boundary interfaces and context records (`service` package) |
 
 ---
 
