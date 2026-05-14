@@ -63,12 +63,15 @@ and records, documentation, test fixtures, and offline tests.**
 ### What is NOT built in Lane C
 
 - No semantic query planner or rule engine
-- No YAML/JSON contract file loader (format decided in C6 DQR — see DQR-001)
+- No YAML/JSON contract file loader (DQR-001 tracks the contract storage format as an open
+  question — not decided here)
 - No live Databricks connection from the candidate `skadi-semantic` module
 - No UI runtime, React components, or dashboard rendering
 - No LLM integration, intent resolution, or AI response generation
 - No production entitlement engine
-- No changes to production code in `skadi-sql-gateway` or `skadi-server`
+- No behavioral changes to production runtime code in `skadi-sql-gateway` or `skadi-server`
+  (later Lane C stories may add isolated Java records, interfaces, stubs, fixtures, and
+  tests in the candidate semantic module only)
 - No convergence of the gateway's direct JDBC path with `skadi-server` (tracked as
   DQR-002)
 
@@ -81,7 +84,8 @@ The candidate module `skadi-semantic` (name confirmed in C2) contains only:
   optionally wired as Spring beans behind a `skadi.semantic.executor=stub` flag
 - No production-traffic-serving code
 
-`skadi-sql-gateway` and `skadi-server` receive no changes in Lane C.
+`skadi-sql-gateway` and `skadi-server` receive no behavioral changes — no production
+runtime code in either module is modified at any point in Lane C.
 
 ---
 
@@ -96,8 +100,8 @@ define the interface → build implementers against it → connect.
 **Why defer contract file loading and format?**
 The storage format (YAML, JSON, pure Java, database) affects the contribution workflow,
 CI validation, and contract lifecycle. Getting it wrong is not free to undo once multiple
-teams have written contracts. DQR-001 captures the open question; the format decision
-waits for C6 analysis.
+teams have written contracts. DQR-001 captures this as an open question; the format decision
+is not made in Lane C.
 
 **Why not extend `skadi-sql-gateway` with semantic stubs?**
 The gateway is a protocol adapter with per-session TCP state. Semantic contract types are
@@ -116,7 +120,7 @@ and reviewers. A named class with a `TODO: activate HTTP call` comment is a sear
 
 ### Positive
 
-- Lane D and Lane E have stable Java interfaces to build against before Lane C completes
+- Lane D and Lane E have stable Java interfaces to build against after Lane C completes
 - Scope creep is structurally prevented: there is no production service to extend in Lane C
 - ADRs 008–010 and DQRs 001–003 capture the decisions and open questions that would
   otherwise accumulate as implicit knowledge
@@ -168,14 +172,16 @@ and reviewers. A named class with a `TODO: activate HTTP call` comment is a sear
 
 ## 7. Migration / Rollout Plan
 
-Lane C is purely additive. The rollout sequence follows the C1–C8 story order:
+Lane C is purely additive. The recommended execution order is:
 
-1. C1: documentation (no code)
-2. C2–C4: add records and interfaces to the candidate module (no runnable code)
-3. C5: add stub executor, optionally wire as a Spring bean (not connected to production traffic)
-4. C6: this ADR and companion ADRs/DQRs
-5. C7: offline tests
-6. C8: dev-status and runbook
+1. C1: documentation — platform boundary model (no code)
+2. C6: ADRs and DQRs — capture boundary decisions before any code is written
+3. C2: `SemanticContract` record and `ContractRegistry` interface
+4. C3: `SemanticQuery`, `OutputShape`, `SemanticCompiler` interface
+5. C4: `CacheContract` and `CacheIdentity` records
+6. C5: `SemanticExecutor` interface, `StubSemanticExecutor`, `SkadiserverSemanticExecutor` skeleton
+7. C7: offline serialization and structural tests
+8. C8: dev-status update and Lane C runbook
 
 Lane D begins after C8 is merged and the C8 runbook has been reviewed.
 

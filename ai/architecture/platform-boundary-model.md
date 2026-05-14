@@ -19,9 +19,9 @@ planner, UI runtime, AI chatbot, or entitlement engine is built in Lane C. Those
 are shown here only as future consumers of the contracts that Lane C will define.
 
 **C1 (this document) is documentation-only.** No Java code is added in C1. Later Lane C
-stories (C2–C7) may introduce isolated Java records, interfaces, no-op stubs, and offline
-tests inside a candidate `skadi-semantic` module. No production code in `skadi-sql-gateway`
-or `skadi-server` is changed at any point in Lane C.
+stories (C2–C7) may introduce isolated Java records, interfaces, no-op stubs, fixtures, and
+offline tests inside a candidate `skadi-semantic` module. Lane C makes no behavioral changes
+to production runtime code in `skadi-sql-gateway` or `skadi-server`.
 
 ---
 
