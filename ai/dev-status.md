@@ -1,9 +1,9 @@
 # Skadi — Development Status
 
-> Updated: 2026-05-14
+> Updated: 2026-05-15
 > Branch: `main`
-> Last commit: see Lane C section below
-> Build: ✅ 258 tests passing (`mvn verify -pl skadi-semantic -am`; gateway/server test counts unchanged)
+> Last commit: see Lane D section below
+> Build: ✅ 494 tests passing (`mvn verify -pl skadi-semantic,skadi-server -am`; gateway test counts unchanged)
 
 ---
 
@@ -196,23 +196,107 @@ All C-lane issues closed. No PRs — committed directly to `main`.
 
 ---
 
-## Architecture Evolution (Lane C+)
+## Lane D — Contract Loading, Resolution, and Runtime Activation (Complete ✅)
 
-Architecture docs and ADRs for the next phase are in:
+| Story | Description | Status | Commit | Issue |
+|---|---|---|---|---|
+| D1 | Lane D activation boundary document | ✅ | `4606eff` | #62 |
+| D2 | Contract definition format decision (JSON canonical) | ✅ | `bc081e8` | #63 |
+| D3 | File-backed JSON contract loader | ✅ | `4360f96` | #64 |
+| D6 | Contract validation and diagnostics | ✅ | `3339075` | #67 |
+| D4 | Runtime ContractRegistry population | ✅ | `97eea43` | #65 |
+| D5 | Semantic contract resolution service | ✅ | `2f543ab` | #66 |
+| D7 | Read-only contract metadata endpoint | ✅ | `c0506a8` | #68 |
+| D8 | Dev-status and Lane D runbook | ✅ | — | #69 |
+
+All D-lane issues closed. Committed directly to `main`.
+
+---
+
+## Lane D Completed — Summary
+
+**Lane D scope:** contract loading, validation, registry population, resolution, and read-only metadata surface — no semantic planner, no SQL generation, no execution path activation.
+
+### What was built in Lane D
+
+| Capability | Key Components | Module |
+|---|---|---|
+| Contract format decision | ADR-011 (JSON canonical); DQR-001 resolved | `ai/adr/` |
+| JSON contract loader | `ContractLoader` interface, `JsonContractLoader` (Jackson), `ContractLoadException` | `skadi-semantic` |
+| Contract validation | `ContractValidator`, `SemanticContractValidator`, `ContractValidationResult`, `ContractValidationIssue`, `ContractValidationSeverity` (8 issue codes) | `skadi-semantic` |
+| Registry population | `ContractRegistryPopulator`, `ContractRegistryPopulationResult`, `ContractRegistryPopulationException`, `LoadedContractRegistry` (read-only) | `skadi-semantic` |
+| Contract resolution | `RegistrySemanticContractResolver` (no access policy enforcement) | `skadi-semantic` |
+| Metadata endpoint | `SemanticContractMetadataController` (`GET /api/semantic/contracts`, `/validation`, `/{name}`), `SemanticContractConfiguration`, `SemanticContractProperties` | `skadi-server` |
+| Format docs | `ai/lane-d/contract-format.md`, ADR-011, DQR-001 (resolved) | `ai/` |
+| Activation boundary | `ai/lane-d/lane-d-activation-boundary.md` | `ai/` |
+| Runbook | `ai/lane-d/lane-d-runbook.md` | `ai/` |
+
+### Key design decisions
+
+| Decision | Outcome |
+|---|---|
+| Contract file format | JSON (ADR-011 Accepted); YAML deferred to post-Lane D |
+| Validation pipeline | `ContractLoader` → `SemanticContractValidator` → `ContractRegistryPopulator` |
+| ERROR issues | Abort registry population; `registry=null` in result |
+| WARNING issues | Allow registry population; warnings available in result |
+| Registry mutability | `LoadedContractRegistry` is read-only after construction |
+| Access policy | Not enforced in Lane D; all principals see all contracts |
+| Endpoint default | `skadi.semantic.contracts.enabled=false`; server startup never blocked |
+| `SkadiServerQueryExecutionService` | Skeleton unchanged; HTTP activation deferred to DQR-002 |
+
+### Endpoint summary
+
+| Method | Path | Behavior |
+|---|---|---|
+| `GET` | `/api/semantic/contracts` | List all loaded contracts (summary); empty when disabled |
+| `GET` | `/api/semantic/contracts/validation` | Validation status of loaded set (valid/errors/warnings/issues) |
+| `GET` | `/api/semantic/contracts/{name}` | Full contract detail; `404` if not found |
+
+### Test count progression
+
+| Milestone | skadi-semantic | skadi-server | Total |
+|---|---|---|---|
+| C8 complete (baseline) | 258 | 101 | 359 |
+| D3 complete | 282 | 101 | 383 |
+| D6 complete | 320 | 101 | 421 |
+| D4 complete | 354 | 101 | 455 |
+| D5 complete | 378 | 101 | 479 |
+| D7 complete | 378 | 116 | 494 |
+
+### Lane D non-goals (enforced throughout)
+
+- No semantic query planner or optimizer
+- No SQL generation from contract metadata
+- No semantic rule execution engine
+- No entitlement enforcement engine
+- No `SkadiServerQueryExecutionService` activation (DQR-002 still open)
+- No cache behavior changes
+- No Databricks semantic execution path
+- No UI runtime or React components
+- No AI chatbot or LLM integration
+- No lineage database integration
+- No `skadi-sql-gateway` changes
+
+---
+
+## Architecture Evolution (Lane C+/D+)
+
+Architecture docs, ADRs, and DQRs:
 
 - `ai/architecture-evolution.md` — full evolution proposal, roadmap, reusable component analysis
 - `ai/adr/ADR-004-semantic-query-layer.md`
-- `ai/adr/ADR-005-semantic-contracts.md`
+- `ai/adr/ADR-005-semantic-contracts.md` (Proposed — superseded for format question by ADR-011)
 - `ai/adr/ADR-006-dashboard-brick-model.md`
 - `ai/adr/ADR-007-ai-chat-integration.md`
 - `ai/adr/ADR-008-lane-c-scope.md` — Lane C scope decision (Accepted)
 - `ai/adr/ADR-009-contracts-before-planning.md` — semantic contracts before planner (Accepted)
 - `ai/adr/ADR-010-cache-positioning.md` — cache stays below all consumers (Accepted)
-- `ai/dqr/DQR-001-contract-definition-format.md` — contract format: YAML vs JSON (Open)
+- `ai/adr/ADR-011-contract-definition-format-json-canonical.md` — JSON canonical for Lane D (Accepted)
+- `ai/dqr/DQR-001-contract-definition-format.md` — **Resolved** (JSON canonical; YAML deferred)
 - `ai/dqr/DQR-002-semantic-execution-delegation.md` — execution topology (Open)
 - `ai/dqr/DQR-003-lineage-market-risk-brain-seams.md` — lineage/MRB integration seams (Open)
 
-Lane C is complete. The `skadi-semantic` module contains contracts, interfaces, and skeletons only. No production execution is wired. See `ai/lane-c/lane-c-runbook.md` for activation guidance.
+Lane D is complete. Contracts are loadable, validateable, resolvable, and inspectable via a read-only HTTP endpoint. The semantic execution path (`SkadiServerQueryExecutionService`) remains a skeleton pending DQR-002 resolution. See `ai/lane-d/lane-d-runbook.md` for activation guidance and next-lane recommendations.
 
 ---
 
