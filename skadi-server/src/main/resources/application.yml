@@ -32,6 +32,13 @@ management:
       pathStyleAccess: true
 
 skadi:
+  semantic:
+    contracts:
+      # Set to true and provide locations to activate the /api/semantic/contracts endpoint.
+      # Server starts normally when disabled — no contract files are required.
+      enabled: false
+      locations: []
+
   aws:
     region: us-east-2
     s3:

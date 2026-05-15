@@ -79,6 +79,13 @@
       <version>${project.version}</version>
     </dependency>
 
+    <!-- Semantic contract layer (Lane D) — read-only metadata endpoint -->
+    <dependency>
+      <groupId>org.iceforge</groupId>
+      <artifactId>skadi-semantic</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+
     <!-- REST / Web -->
     <dependency>
       <groupId>org.springframework.boot</groupId>
