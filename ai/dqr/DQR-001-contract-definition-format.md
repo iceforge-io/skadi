@@ -1,10 +1,11 @@
 # DQR-001: Contract Definition Format
 
-**Status:** Open
+**Status:** Resolved — Lane D (JSON canonical; YAML deferred)
 **Raised:** 2026-05-14
-**Blocking:** post-Lane C loading implementation (C2+ code that loads contracts from storage)
-**Related:** ADR-005 (Proposed), ADR-008, ADR-009
-**Resolves in:** C6 analysis or early post-Lane C story
+**Resolved:** 2026-05-14 — ADR-011 (Accepted)
+**Blocking:** ~~post-Lane C loading implementation~~ — unblocked by ADR-011
+**Related:** ADR-005 (Proposed — YAML was leading candidate), ADR-008, ADR-009, ADR-011 (Accepted)
+**Resolves in:** D2 / skadi#63
 
 ---
 
@@ -99,8 +100,29 @@ Concerns to resolve before confirming:
 
 ---
 
-## Decision Status
+## Decision
 
-**Not yet decided.** YAML (Option 1) is the leading candidate per ADR-005. Confirmed
-format and loading mechanism to be recorded in a follow-on ADR or as an ADR-005 status
-change from Proposed to Accepted.
+**Resolved in D2 / skadi#63 — see ADR-011 (Accepted, 2026-05-14).**
+
+**JSON is the canonical runtime contract format for Lane D.**
+
+| Aspect | Decision |
+|---|---|
+| Runtime file format | JSON (`.json` files, one per contract) |
+| In-memory model | Java records (unchanged from Lane C) |
+| YAML | Deferred — not rejected; possible future human-authoring layer |
+| JSON Schema validation | Deferred to D6 (structural validation story) |
+| Canonical example | `skadi-semantic/src/test/resources/fixtures/sample-contract.json` |
+
+**Rationale summary:**
+- Lane C already has deterministic Jackson JSON fixtures and tests for all contract types.
+- JSON has stricter syntax (no implicit type coercions, no indentation sensitivity).
+- No new parser dependency is required beyond Jackson, which is already present.
+- AI coding agents produce consistent JSON; YAML indentation errors are common.
+- ADR-005 proposed YAML but was Proposed (never Accepted); ADR-011 supersedes that question
+  for Lane D without rejecting YAML as a future authoring convenience layer.
+
+**What remains open:**
+- Q: Should YAML be added as an authoring layer in a post-Lane D story? (future ADR)
+- Q: Should multi-contract JSON envelopes be supported, or one file per contract? (D3 scope)
+- Q: When YAML is added, conversion at load time vs. CI time? (future ADR)
