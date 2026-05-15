@@ -31,12 +31,12 @@
       <scope>test</scope>
     </dependency>
 
-    <!-- JSON serialization tests only; versions managed by spring-boot-dependencies BOM -->
+    <!-- Jackson: compile scope for JsonContractLoader (D3); version managed by BOM -->
     <dependency>
       <groupId>com.fasterxml.jackson.core</groupId>
       <artifactId>jackson-databind</artifactId>
-      <scope>test</scope>
     </dependency>
+    <!-- JavaTimeModule for Instant fields in cache boundary types — test only -->
     <dependency>
       <groupId>com.fasterxml.jackson.datatype</groupId>
       <artifactId>jackson-datatype-jsr310</artifactId>
