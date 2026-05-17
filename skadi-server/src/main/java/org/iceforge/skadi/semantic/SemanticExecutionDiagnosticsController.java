@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import org.iceforge.skadi.semantic.service.SemanticExecutionCircuitBreaker;
 import org.iceforge.skadi.semantic.service.SemanticExecutionHealthSnapshot;
 import org.iceforge.skadi.semantic.service.SemanticExecutionHealthStatus;
+import org.iceforge.skadi.semantic.service.SemanticExecutionReadiness;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -57,6 +58,7 @@ public class SemanticExecutionDiagnosticsController {
                         metricsRegistry.errors()),
                 new HealthSnapshot(
                         snap.status().name(),
+                        SemanticExecutionReadiness.from(snap.status()).name(),
                         snap.failureCount(),
                         snap.failureThreshold(),
                         snap.lastSuccessAt(),
@@ -85,6 +87,7 @@ public class SemanticExecutionDiagnosticsController {
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record HealthSnapshot(
             String status,
+            String readiness,
             int failureCount,
             int failureThreshold,
             Instant lastSuccessAt,

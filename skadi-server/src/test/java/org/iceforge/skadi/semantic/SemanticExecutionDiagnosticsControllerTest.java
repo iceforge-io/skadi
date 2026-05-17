@@ -125,6 +125,12 @@ class SemanticExecutionDiagnosticsControllerTest {
     }
 
     @Test
+    void status_healthReadinessIsReady() throws Exception {
+        mockMvc.perform(get(URL))
+                .andExpect(jsonPath("$.health.readiness").value("READY"));
+    }
+
+    @Test
     void status_healthFailureCountStartsAtZero() throws Exception {
         mockMvc.perform(get(URL))
                 .andExpect(jsonPath("$.health.failureCount").value(0));
@@ -158,7 +164,8 @@ class SemanticExecutionDiagnosticsControllerTest {
         mvc.perform(get(URL))
                 .andExpect(jsonPath("$.active").value(false))
                 .andExpect(jsonPath("$.health.status").value(
-                        SemanticExecutionHealthStatus.DISABLED.name()));
+                        SemanticExecutionHealthStatus.DISABLED.name()))
+                .andExpect(jsonPath("$.health.readiness").value("DISABLED"));
     }
 
     @Test
