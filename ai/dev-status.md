@@ -326,6 +326,22 @@ All D-lane issues closed. Committed directly to `main`.
 
 ---
 
+## Lane E1 — Semantic Metadata Foundation (Complete ✅)
+
+Stories #72–#82 (EPIC #82). Contract explanation metadata, screen-context model, ADR-012 fitness tests and guardrails — all committed to `main`.
+
+| Story | Description | Status | Issue |
+|---|---|---|---|
+| E1.1–E1.4 | Contract explanation metadata records | ✅ | #72–#75 |
+| E1.6 | Metadata API endpoints | ✅ | — |
+| E1.8 | Request validation endpoint | ✅ | — |
+| E1.9 | Screen-context and widget-binding model | ✅ | #80 |
+| E1.10 | ADR-012 fitness tests and guardrails | ✅ | #81 |
+
+ADR-012 guardrails verified: enriched metadata load/registry roundtrip (21 tests), validation endpoint rejects unknown contract/measure/dimension, non-groupable grouping, non-filterable filter; structural test confirms validation endpoint has no execution dependency. `skadi-sql-gateway` untouched.
+
+---
+
 ## Lane E — Semantic Execution Activation (In Progress)
 
 | Story | Description | Status | Commit | Issue |
