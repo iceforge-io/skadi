@@ -1,5 +1,7 @@
 package org.iceforge.skadi.semantic.request;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+
 import java.util.List;
 import java.util.Objects;
 
@@ -38,6 +40,7 @@ import java.util.Objects;
  *     "You do not have access to cross-entity aggregation for this contract.");
  * }</pre>
  */
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public record SemanticValidationOutcome(
         boolean allowed,
         SemanticValidationReasonCode reasonCode,
