@@ -48,10 +48,10 @@ import static org.junit.jupiter.api.Assertions.*;
  *   <li>TODO: Add contract linting warning when explanation metadata is absent
  *       (owner, intendedUsage, grain) — implement as {@code ContractValidationSeverity.INFO}
  *       once ADR-012 compliance becomes a governance requirement</li>
- *   <li>TODO: Add fitness test verifying that the validation endpoint
- *       ({@code POST /api/semantic/v1/query/validate}) does not touch any query
- *       execution path (no Databricks calls, no cache writes) — implement via
- *       a Spring Boot test with mocked executor once E2 introduces execution</li>
+ *   <li>DONE (skadi#81): Validation endpoint does not invoke query execution —
+ *       covered by {@code SemanticRequestValidationControllerTest#adr012_validate_doesNotDeclareExecutionServiceDependency}</li>
+ *   <li>DONE (skadi#81): Non-filterable dimension rejected as filter —
+ *       covered by {@code SemanticRequestValidationControllerTest#adr012_dimensionFilter_nonFilterableDimension_returnsDenied}</li>
  * </ul>
  *
  * @see <a href="ai/adr/ADR-012-buddy-chat-semantic-model-interrogation.md">ADR-012</a>

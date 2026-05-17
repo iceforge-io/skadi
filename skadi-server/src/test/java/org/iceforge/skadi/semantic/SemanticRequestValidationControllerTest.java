@@ -26,6 +26,8 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import java.util.List;
 import java.util.Optional;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -306,5 +308,45 @@ class SemanticRequestValidationControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.contractId").doesNotExist())
                 .andExpect(jsonPath("$.invalidFields").doesNotExist());
+    }
+
+    // ── ADR-012 guardrails ─────────────────────────────────────────────────────
+
+    @Test
+    void adr012_dimensionFilter_nonFilterableDimension_returnsDenied() throws Exception {
+        // Required check #5e: a dimension with filterable=false must be rejected as a filter.
+        // Create an inline contract with a non-filterable dimension (price).
+        var entity = new SemanticEntity("c", "", new SemanticEndpoint("c", "s", "t"), List.of());
+        var nonFilterable = new SemanticDimension(
+                "price", "price", SemanticFieldType.DECIMAL, "Price",
+                /*filterable=*/ false, /*groupable=*/ true, null);
+        var contract = new SemanticContract(
+                "restricted", new SemanticContractVersion("1.0.0"), "", entity,
+                List.of(), List.of(nonFilterable),
+                SemanticAccessPolicy.unrestricted(), SemanticCachePolicy.none(), null);
+        when(registry.findByName("restricted")).thenReturn(Optional.of(contract));
+
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
+                        .content(body("restricted", SemanticValidationRequestType.DIMENSION_FILTER, "price")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.allowed").value(false))
+                .andExpect(jsonPath("$.reasonCode").value("DIMENSION_NOT_FILTERABLE"))
+                .andExpect(jsonPath("$.invalidFields[0]").value("price"));
+    }
+
+    @Test
+    void adr012_validate_doesNotDeclareExecutionServiceDependency() {
+        // ADR-012 structural guardrail (required check #6): the validation endpoint
+        // must not depend on any query execution service. This test fails at compile
+        // time if SemanticRequestValidationController gains an execution dependency,
+        // and at runtime confirms no execution-related field is declared.
+        var fields = java.util.Arrays.stream(SemanticRequestValidationController.class.getDeclaredFields())
+                .map(f -> f.getType().getName())
+                .toList();
+        assertTrue(fields.stream().noneMatch(t -> t.contains("Execution") || t.contains("QueryService")),
+                "ADR-012: SemanticRequestValidationController must not depend on query execution services");
+        // Additionally: constructing the controller with only ContractRegistry succeeds,
+        // proving no execution service is required at all.
+        assertDoesNotThrow(() -> new SemanticRequestValidationController(registry));
     }
 }

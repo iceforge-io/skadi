@@ -328,8 +328,8 @@ All D-lane issues closed. Committed directly to `main`.
 
 ## Lane E1 — Semantic Metadata Foundation (Complete ✅)
 
-Stories #72–#82 (EPIC #82). Contract explanation metadata, ADR-012 fitness tests, and
-screen-context model — all committed to `main` as part of PR #94 (`ca87c72`).
+Stories #72–#82 (EPIC #82). Contract explanation metadata, ADR-012 fitness tests,
+and screen-context model — all committed to `main` as part of PR #94 (`ca87c72`).
 
 | Story | Description | Status | Issue |
 |---|---|---|---|
@@ -345,7 +345,12 @@ Key model types (all in `org.iceforge.skadi.semantic.screen`):
 `ExplainWidgetBindingRequest` — serializable model records only; no runtime, no LLM,
 no query execution, no SQL generation, `skadi-sql-gateway` untouched.
 
-Tests: `ScreenContextModelTest` (35), `Adr012FitnessTest` (21).
+ADR-012 guardrails verified: enriched metadata load/registry roundtrip (21 tests);
+validation endpoint rejects unknown contract/measure/dimension, non-groupable grouping,
+and non-filterable filter; structural test confirms validation endpoint has no execution
+dependency.
+
+Tests: `ScreenContextModelTest` (35), `Adr012FitnessTest` (21), `SemanticRequestValidationControllerTest` (21).
 
 ---
 
