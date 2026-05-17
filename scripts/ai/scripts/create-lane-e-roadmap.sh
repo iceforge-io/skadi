@@ -243,7 +243,7 @@ LANE_E_PARENT_BODY="$TMP_DIR/lane-e-parent.md"
 cat > "$LANE_E_PARENT_BODY" <<'EOF'
 ## Purpose
 
-Lane E activates semantic execution in Skadi.
+Lane E activates Semantic execution in Skadi.
 
 This lane picks up the skeletons and boundaries created in earlier lanes and turns the semantic execution path into a real runtime capability.
 
