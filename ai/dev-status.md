@@ -1,8 +1,8 @@
 # Skadi — Development Status
 
-> Updated: 2026-05-15
+> Updated: 2026-05-17
 > Branch: `main`
-> Last commit: see Lane D section below
+> Last commit: `2f53fa4` — docs: add buddy chat semantic model interrogation decision (ADR-012)
 > Build: ✅ 494 tests passing (`mvn verify -pl skadi-semantic,skadi-server -am`; gateway test counts unchanged)
 
 ---
@@ -339,6 +339,7 @@ Architecture docs, ADRs, and DQRs:
 - `ai/adr/ADR-009-contracts-before-planning.md` — semantic contracts before planner (Accepted)
 - `ai/adr/ADR-010-cache-positioning.md` — cache stays below all consumers (Accepted)
 - `ai/adr/ADR-011-contract-definition-format-json-canonical.md` — JSON canonical for Lane D (Accepted)
+- `ai/adr/ADR-012-buddy-chat-semantic-model-interrogation.md` — buddy chat must interrogate semantic model for query execution and explanation; must not maintain independent business definitions (Accepted)
 - `ai/dqr/DQR-001-contract-definition-format.md` — **Resolved** (JSON canonical; YAML deferred)
 - `ai/dqr/DQR-002-semantic-execution-delegation.md` — execution topology (Open)
 - `ai/dqr/DQR-003-lineage-market-risk-brain-seams.md` — lineage/MRB integration seams (Open)
