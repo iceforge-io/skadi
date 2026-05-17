@@ -1,9 +1,9 @@
 # Skadi — Development Status
 
 > Updated: 2026-05-17
-> Branch: `feature/110-semantic-execution-resilience`
-> Last commit: pending — Lane F F1: semantic execution circuit-breaker and resilience — skadi#110
-> Build: ✅ 760 tests passing (skadi-semantic: 549, skadi-server: 211; gateway unchanged)
+> Branch: `feature/112-semantic-execution-readiness-runbook`
+> Last commit: pending — Lane F F2: semantic execution readiness and operator runbook — skadi#112
+> Build: ✅ 768 tests passing (skadi-semantic: 556, skadi-server: 212; gateway unchanged)
 
 ---
 
@@ -359,8 +359,40 @@ Tests: `ScreenContextModelTest` (35), `Adr012FitnessTest` (21), `SemanticRequest
 | Story | Description | Status | Issue |
 |---|---|---|---|
 | F1 | Semantic execution health, readiness, and circuit-breaker behavior | ✅ | #110 |
+| F2 | Semantic execution readiness endpoint and operator runbook | ✅ | #112 |
 
 **Epic:** #109 — harden the Lane E semantic execution delegation path before buddy-chat, dashboard explanation, or gateway convergence depend on it.
+
+---
+
+## Lane F Completed — F2 Summary
+
+**Issue:** #112 | **Branch:** `feature/112-semantic-execution-readiness-runbook`
+
+**Lane F F2 scope:** Operational readiness classification and operator runbook for the semantic execution delegation path.
+
+### What was built in F2
+
+| Capability | Key Components | Module |
+|---|---|---|
+| Readiness enum | `SemanticExecutionReadiness` — `READY, DISABLED, DEGRADED, UNAVAILABLE`; `from(SemanticExecutionHealthStatus)` mapping | `skadi-semantic` |
+| Diagnostics field | `health.readiness` added to `GET /api/semantic/v1/execution/status` response | `skadi-server` |
+| Readiness tests | `SemanticExecutionReadinessTest` — 7 tests covering all 6 health-to-readiness mappings | `skadi-semantic` |
+| Operator runbook | `ai/lane-f/semantic-execution-readiness-runbook.md` — status interpretation, failure modes, config reference, deployment gate pattern | `ai/` |
+
+### Test count progression
+
+| Milestone | skadi-semantic | skadi-server | Total |
+|---|---|---|---|
+| F1 complete (baseline) | 549 | 211 | 760 |
+| F2 complete | 556 | 212 | 768 |
+
+### Lane F F2 non-goals (enforced throughout)
+
+- No `skadi-sql-gateway` changes
+- No LLM integration, UI runtime, or SQL generation
+- No full platform health framework
+- No secrets exposed in diagnostics
 
 ---
 
