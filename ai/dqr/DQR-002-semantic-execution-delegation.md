@@ -1,10 +1,10 @@
 # DQR-002: Semantic Execution Delegation
 
-**Status:** Open
+**Status:** Resolved — Option 4 (partial convergence)
 **Raised:** 2026-05-14
-**Blocking:** post-C5 activation of `SkadiserverSemanticExecutor`
+**Resolved:** 2026-05-17 — issue #97, PR #102, commit `42e4a4a`
 **Related:** ADR-004, ADR-008, ADR-010, dev-status debt item L10
-**Resolves in:** first post-Lane C story that activates live semantic execution
+**Follow-on:** DQR-004 tracks the remaining full SQL gateway convergence question
 
 ---
 
@@ -74,52 +74,35 @@ The answer affects:
 
 ---
 
-## Current Leaning
+## Resolution
 
-**Option 4** (partial convergence) is the most pragmatic next step:
+**Option 4 chosen** — partial convergence, implemented in issue #97.
 
-- Implement `SkadiserverSemanticExecutor` to call `POST /api/v1/queries` as ADR-004
-  proposes.
-- Leave the gateway's direct JDBC path unchanged for now — the gateway is
-  production-critical and convergence is a separate risk to manage.
-- Plan full convergence (Option 3) as a later dedicated story after the semantic path
-  is proven stable.
-
-This matches the ADR-004 rollout plan (C5 activates `skadi-server` for semantic path)
-while not over-committing to gateway changes.
+- `SkadiServerQueryExecutionService` now makes real HTTP calls to `POST /api/v1/queries`
+  on `skadi-server`. Cache-hit (200 SUCCEEDED) and async (202 ACCEPTED + status poll)
+  paths are both handled.
+- `skadi-sql-gateway` was **intentionally left unchanged** — the gateway's direct JDBC
+  path continues unaffected. This was an explicit guardrail for Lane E.
+- Full SQL gateway convergence (Option 3) is a separate future question. It should
+  only be attempted after the semantic path has proven stable in production. See DQR-004.
 
 ---
 
-## Risk Summary
+## Risk Summary (for reference)
 
-**If delegated to `skadi-server` (Options 1 or 4) and `skadi-server` is unavailable:**
+**`skadi-server` unavailable (the live risk under Option 4):**
 
-- Semantic queries fail; raw SQL path (gateway) continues unaffected.
-- A circuit breaker or health check in `skadi-semantic` is required to prevent
-  cascading failures.
+- Semantic queries fail; raw SQL gateway path continues unaffected.
+- A circuit breaker or health check is a future hardening item — not in scope for Lane E.
 
-**If semantic layer calls Databricks directly (Option 2):**
+**Full convergence (Option 3) — still not done:**
 
-- Cache sharing between paths breaks; two independent caches produce stale-result risks
-  and inflated Databricks costs.
-- Contradicts ADR-010's cache positioning decision.
-
-**If full convergence is attempted prematurely (Option 3):**
-
-- The gateway change is high-blast-radius; production Tableau connections are affected.
-- Full convergence should follow a production soak period of the semantic path.
-
-**If delayed indefinitely:**
-
-- `skadi-server` remains built but uncalled — a permanent dead weight in the codebase.
-- Cache deduplication between the two paths is never achieved.
-- Lane D bricks cannot use the live semantic endpoint.
+- Gateway change is high-blast-radius; production Tableau connections affected.
+- Deferred to DQR-004 and a future lane after production soak.
 
 ---
 
 ## Decision Status
 
-**Not yet decided.** Option 4 is the current leaning. The decision is confirmed when
-the post-Lane C story to activate `SkadiserverSemanticExecutor` is started. At that
-point, this DQR is marked Resolved and the activation approach is recorded in the
-commit message or a new ADR.
+**Resolved.** Option 4 implemented in issue #97 (commit `42e4a4a`, PR #102).
+Full gateway convergence tracked separately in DQR-004.
