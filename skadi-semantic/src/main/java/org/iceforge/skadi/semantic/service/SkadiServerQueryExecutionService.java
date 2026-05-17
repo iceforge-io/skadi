@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.iceforge.skadi.semantic.cache.CacheEntryState;
 import org.iceforge.skadi.semantic.cache.CacheIdentity;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -28,10 +30,13 @@ import java.util.Objects;
  *       {@code /api/v1/queries/{queryId}/status} until a terminal state is reached.</li>
  * </ol>
  *
- * <p>Wired as a Spring bean by {@code SemanticContractConfiguration} in {@code skadi-server}
- * via {@code skadi.semantic.execution.*} properties.
+ * <p>Observability: every execution path emits structured SLF4J log events and records
+ * counters via {@link SemanticExecutionMetrics}. Wired as a Spring bean by
+ * {@code SemanticContractConfiguration} in {@code skadi-server}.
  */
 public final class SkadiServerQueryExecutionService implements QueryExecutionService {
+
+    private static final Logger log = LoggerFactory.getLogger(SkadiServerQueryExecutionService.class);
 
     static final long DEFAULT_POLL_INTERVAL_MS = 500L;
     static final long DEFAULT_MAX_WAIT_MS = 300_000L;
@@ -44,9 +49,11 @@ public final class SkadiServerQueryExecutionService implements QueryExecutionSer
     private final HttpClient httpClient;
     private final long pollIntervalMs;
     private final long maxWaitMs;
+    private final SemanticExecutionMetrics metrics;
 
     /**
-     * Production constructor. Uses the default {@link HttpClient} and standard poll settings.
+     * Convenience constructor. Uses {@link NoOpSemanticExecutionMetrics}, the default
+     * {@link HttpClient}, and standard poll settings.
      *
      * @param baseUrl      skadi-server base URL (e.g. {@code http://localhost:8080})
      * @param jdbcUrl      JDBC URL forwarded to skadi-server for Databricks connections
@@ -61,7 +68,29 @@ public final class SkadiServerQueryExecutionService implements QueryExecutionSer
             String jdbcPassword,
             ObjectMapper mapper) {
         this(baseUrl, jdbcUrl, jdbcUsername, jdbcPassword, mapper,
-                HttpClient.newHttpClient(), DEFAULT_POLL_INTERVAL_MS, DEFAULT_MAX_WAIT_MS);
+                NoOpSemanticExecutionMetrics.INSTANCE);
+    }
+
+    /**
+     * Production constructor. Uses the default {@link HttpClient} and standard poll settings.
+     *
+     * @param baseUrl      skadi-server base URL (e.g. {@code http://localhost:8080})
+     * @param jdbcUrl      JDBC URL forwarded to skadi-server for Databricks connections
+     * @param jdbcUsername optional JDBC username; may be null
+     * @param jdbcPassword optional JDBC password; may be null
+     * @param mapper       Jackson ObjectMapper for JSON request/response handling
+     * @param metrics      observability callback; use {@link NoOpSemanticExecutionMetrics#INSTANCE}
+     *                     when no real recording is needed
+     */
+    public SkadiServerQueryExecutionService(
+            String baseUrl,
+            String jdbcUrl,
+            String jdbcUsername,
+            String jdbcPassword,
+            ObjectMapper mapper,
+            SemanticExecutionMetrics metrics) {
+        this(baseUrl, jdbcUrl, jdbcUsername, jdbcPassword, mapper,
+                HttpClient.newHttpClient(), DEFAULT_POLL_INTERVAL_MS, DEFAULT_MAX_WAIT_MS, metrics);
     }
 
     /** Package-private: allows tests to inject a fake {@link HttpClient} and tunable poll timing. */
@@ -73,7 +102,8 @@ public final class SkadiServerQueryExecutionService implements QueryExecutionSer
             ObjectMapper mapper,
             HttpClient httpClient,
             long pollIntervalMs,
-            long maxWaitMs) {
+            long maxWaitMs,
+            SemanticExecutionMetrics metrics) {
         String trimmed = Objects.requireNonNull(baseUrl, "baseUrl");
         this.baseUrl = trimmed.endsWith("/") ? trimmed.substring(0, trimmed.length() - 1) : trimmed;
         this.jdbcUrl = Objects.requireNonNull(jdbcUrl, "jdbcUrl");
@@ -83,6 +113,7 @@ public final class SkadiServerQueryExecutionService implements QueryExecutionSer
         this.httpClient = Objects.requireNonNull(httpClient, "httpClient");
         this.pollIntervalMs = pollIntervalMs;
         this.maxWaitMs = maxWaitMs;
+        this.metrics = Objects.requireNonNull(metrics, "metrics");
     }
 
     /**
@@ -105,8 +136,12 @@ public final class SkadiServerQueryExecutionService implements QueryExecutionSer
                     "SQL-first execution required for Lane E; request.sql() must not be blank");
         }
 
+        String principal = request.context().principalName();
         CacheIdentity identity = new CacheIdentity(
-                sql, request.context().principalName(), request.semanticContractName());
+                sql, principal, request.semanticContractName());
+
+        log.debug("semantic-exec: attempt principal={} server={}", principal, baseUrl);
+        metrics.recordAttempt();
 
         try {
             String body = buildSubmitBody(sql);
@@ -124,20 +159,33 @@ public final class SkadiServerQueryExecutionService implements QueryExecutionSer
             String state = resp.path("state").asText("");
 
             if (response.statusCode() == 200 && "SUCCEEDED".equals(state)) {
+                log.info("semantic-exec: cache-hit queryId={} principal={}", queryId, principal);
+                metrics.recordCacheHit();
                 return QueryExecutionResult.completed(request.context(), identity, CacheEntryState.FRESH);
             }
             if (response.statusCode() == 202 && queryId != null) {
+                log.info("semantic-exec: async-accepted queryId={} principal={}", queryId, principal);
+                metrics.recordAsyncAccepted();
                 return pollUntilDone(request.context(), identity, queryId);
             }
+
+            log.warn("semantic-exec: unexpected-submit-response http={} state={} principal={}",
+                    response.statusCode(), state, principal);
+            metrics.recordFailure();
             return QueryExecutionResult.failed(request.context(), identity,
                     "unexpected submit response: HTTP " + response.statusCode() + " state=" + state);
 
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            log.warn("semantic-exec: interrupted principal={}", principal);
+            metrics.recordError();
             return QueryExecutionResult.failed(request.context(), identity,
                     "interrupted while waiting for query: " + e.getMessage());
         } catch (Exception e) {
-            return QueryExecutionResult.failed(request.context(), identity, e.getMessage());
+            String msg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+            log.error("semantic-exec: error principal={} msg={}", principal, msg, e);
+            metrics.recordError();
+            return QueryExecutionResult.failed(request.context(), identity, msg);
         }
     }
 
@@ -167,18 +215,29 @@ public final class SkadiServerQueryExecutionService implements QueryExecutionSer
             JsonNode statusNode = mapper.readTree(statusResp.body());
             String state = statusNode.path("state").asText("");
 
+            log.debug("semantic-exec: poll queryId={} state={}", queryId, state);
+
             if ("SUCCEEDED".equals(state)) {
+                log.info("semantic-exec: succeeded queryId={} principal={}", queryId, ctx.principalName());
+                metrics.recordSuccess();
                 return QueryExecutionResult.completed(ctx, identity, CacheEntryState.ABSENT);
             }
             if ("FAILED".equals(state)) {
-                return QueryExecutionResult.failed(ctx, identity,
-                        statusNode.path("message").asText("query failed on server"));
+                String msg = statusNode.path("message").asText("query failed on server");
+                log.warn("semantic-exec: failed queryId={} msg={}", queryId, msg);
+                metrics.recordFailure();
+                return QueryExecutionResult.failed(ctx, identity, msg);
             }
             if ("CANCELED".equals(state)) {
+                log.warn("semantic-exec: canceled queryId={}", queryId);
+                metrics.recordFailure();
                 return QueryExecutionResult.failed(ctx, identity, "query was canceled on server");
             }
             // QUEUED or RUNNING — keep polling
         }
+
+        log.warn("semantic-exec: timeout queryId={} maxWaitMs={}", queryId, maxWaitMs);
+        metrics.recordTimeout();
         return QueryExecutionResult.failed(ctx, identity, "query timed out after " + maxWaitMs + "ms");
     }
 }

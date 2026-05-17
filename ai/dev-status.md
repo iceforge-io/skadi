@@ -157,7 +157,7 @@ Items prefixed `[critical]` should be addressed before production traffic.
 
 | ID | Severity | Detail |
 |---|---|---|
-| L10 | Medium | Gateway embeds own JDBC pool + cache instead of delegating to `skadi-server` — duplicates execution concerns; `SkadiServerQueryExecutionService` skeleton created in Lane C; HTTP activation deferred pending DQR-002 resolution |
+| L10 | Medium | Gateway embeds own JDBC pool + cache instead of delegating to `skadi-server` — duplicates execution concerns; `SkadiServerQueryExecutionService` activated in Lane E (DQR-002 resolved); full SQL gateway convergence remains deferred — see DQR-004 |
 | L11 | Low | `JdbcArrowStreamer` duplicated in `skadi-core` and `skadi-server`; copies may diverge |
 | L13 | Low | `ai/query-flow.md` referenced in `ai/claude-instructions.md` but does not exist |
 

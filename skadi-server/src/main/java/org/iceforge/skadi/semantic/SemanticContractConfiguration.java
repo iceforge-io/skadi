@@ -30,9 +30,12 @@ import java.util.List;
  *   <li>{@code semanticContractValidator} — stateless {@link SemanticContractValidator}</li>
  *   <li>{@code semanticContractResolver} — {@link RegistrySemanticContractResolver}
  *       backed by the registry</li>
- *   <li>{@code queryExecutionService} — Lane E: {@link SkadiServerQueryExecutionService}
+ *   <li>{@code queryExecutionService} — Lane E E1: {@link SkadiServerQueryExecutionService}
  *       that delegates semantic query execution to skadi-server's {@code POST /api/v1/queries}
  *       endpoint (DQR-002 resolved, Option 4 — partial convergence)</li>
+ *   <li>{@code semanticExecutionMetricsRegistry} — Lane E E2: {@link SemanticExecutionMetricsRegistry}
+ *       wired into the execution service; counters exposed via
+ *       {@code GET /api/semantic/v1/execution/status}</li>
  * </ul>
  *
  * <p>Safe-defaults: if {@code skadi.semantic.contracts.enabled} is {@code false}
@@ -110,11 +113,36 @@ public class SemanticContractConfiguration {
      * empty strings are substituted and the execution service will report a connection error
      * at runtime — server startup is not affected.
      */
+    /**
+     * Lane E E2 — Semantic execution metrics registry.
+     *
+     * <p>Provides in-memory counters for all semantic execution outcomes. Wired into
+     * {@link #queryExecutionService} so that every delegation attempt is observable
+     * via {@code GET /api/semantic/v1/execution/status}.
+     */
+    @Bean
+    public SemanticExecutionMetricsRegistry semanticExecutionMetricsRegistry() {
+        return new SemanticExecutionMetricsRegistry();
+    }
+
+    /**
+     * Lane E E1 — Semantic execution activation (DQR-002, Option 4).
+     *
+     * <p>Wires {@link SkadiServerQueryExecutionService} to delegate semantic query execution
+     * to skadi-server's {@code POST /api/v1/queries} endpoint. The JDBC credentials forwarded
+     * with each request are resolved from the datasource identified by
+     * {@code skadi.semantic.execution.datasource-id}.
+     *
+     * <p>If the configured datasource does not exist in {@code skadi.jdbc.datasources},
+     * empty strings are substituted and the execution service will report a connection error
+     * at runtime — server startup is not affected.
+     */
     @Bean
     public QueryExecutionService queryExecutionService(
             SemanticExecutionProperties execProps,
             SkadiJdbcProperties jdbcProps,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            SemanticExecutionMetricsRegistry metricsRegistry) {
 
         var datasource = jdbcProps.getDatasources().get(execProps.getDatasourceId());
         String jdbcUrl      = datasource != null ? datasource.getJdbcUrl()  : "";
@@ -125,6 +153,7 @@ public class SemanticContractConfiguration {
                 + "-> {} (datasource-id={})", execProps.getServerUrl(), execProps.getDatasourceId());
 
         return new SkadiServerQueryExecutionService(
-                execProps.getServerUrl(), jdbcUrl, jdbcUsername, jdbcPassword, objectMapper);
+                execProps.getServerUrl(), jdbcUrl, jdbcUsername, jdbcPassword,
+                objectMapper, metricsRegistry);
     }
 }

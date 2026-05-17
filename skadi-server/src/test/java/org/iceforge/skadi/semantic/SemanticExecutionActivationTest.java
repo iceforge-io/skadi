@@ -49,7 +49,8 @@ class SemanticExecutionActivationTest {
         ds.setPassword("secret");
         jdbcProps.setDatasources(Map.of("default", ds));
 
-        QueryExecutionService svc = config.queryExecutionService(execProps, jdbcProps, new ObjectMapper());
+        QueryExecutionService svc = config.queryExecutionService(execProps, jdbcProps, new ObjectMapper(),
+                new SemanticExecutionMetricsRegistry());
 
         assertNotNull(svc);
         assertInstanceOf(SkadiServerQueryExecutionService.class, svc,
@@ -66,7 +67,8 @@ class SemanticExecutionActivationTest {
 
         var jdbcProps = new SkadiJdbcProperties(); // no datasources configured
 
-        QueryExecutionService svc = config.queryExecutionService(execProps, jdbcProps, new ObjectMapper());
+        QueryExecutionService svc = config.queryExecutionService(execProps, jdbcProps, new ObjectMapper(),
+                new SemanticExecutionMetricsRegistry());
 
         assertNotNull(svc, "bean must be created even when datasource is absent");
         assertInstanceOf(SkadiServerQueryExecutionService.class, svc);

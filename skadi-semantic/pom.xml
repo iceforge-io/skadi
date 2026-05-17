@@ -36,6 +36,13 @@
       <groupId>com.fasterxml.jackson.core</groupId>
       <artifactId>jackson-databind</artifactId>
     </dependency>
+
+    <!-- SLF4J: structured logging in SkadiServerQueryExecutionService (Lane E E2) -->
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+      <version>2.0.13</version>
+    </dependency>
     <!-- JavaTimeModule for Instant fields in cache boundary types — test only -->
     <dependency>
       <groupId>com.fasterxml.jackson.datatype</groupId>
