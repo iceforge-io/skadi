@@ -49,15 +49,30 @@ ensure_label() {
   local color="$2"
   local description="$3"
 
-  if gh label list --repo "$REPO_SLUG" --json name --jq '.[].name' | grep -Fxq "$name"; then
+  if gh api "repos/$REPO_SLUG/labels?per_page=100" --paginate \
+      --jq '.[].name' | grep -Fxq "$name"; then
     echo "Label exists: $name"
-  else
-    echo "Creating label: $name"
-    gh label create "$name" \
+    return 0
+  fi
+
+  echo "Creating label: $name"
+
+  if gh label create "$name" \
       --repo "$REPO_SLUG" \
       --color "$color" \
-      --description "$description" >/dev/null
+      --description "$description" >/dev/null 2>&1; then
+    return 0
   fi
+
+  # Defensive: another run/user may have created it between check and create.
+  if gh api "repos/$REPO_SLUG/labels?per_page=100" --paginate \
+      --jq '.[].name' | grep -Fxq "$name"; then
+    echo "Label exists after create race: $name"
+    return 0
+  fi
+
+  echo "ERROR: failed to create label: $name" >&2
+  return 1
 }
 
 ensure_milestone() {
