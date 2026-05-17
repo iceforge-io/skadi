@@ -1,22 +1,26 @@
 package org.iceforge.skadi.semantic;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import org.iceforge.skadi.semantic.service.SemanticExecutionCircuitBreaker;
+import org.iceforge.skadi.semantic.service.SemanticExecutionHealthSnapshot;
+import org.iceforge.skadi.semantic.service.SemanticExecutionHealthStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.Instant;
+
 /**
- * Read-only diagnostics endpoint for the Lane E semantic execution path (E2).
+ * Read-only diagnostics endpoint for the semantic execution delegation path.
  *
  * <h2>Endpoint</h2>
  * <pre>GET /api/semantic/v1/execution/status</pre>
  *
- * <p>Returns whether semantic execution is active, the configured server URL and
- * datasource ID, and lifetime execution counters. Useful for confirming that the
- * execution path is wired correctly and observing basic traffic patterns.
+ * <p>Returns the current activation state, configuration (server URL, datasource ID — no
+ * credentials), lifetime execution counters, and circuit-breaker health snapshot.
+ * Useful for confirming the path is wired and healthy before depending on it.
  *
  * <p>This endpoint does not execute queries, call Databricks, or modify any state.
- * Counter values reset on server restart.
  */
 @RestController
 @RequestMapping("/api/semantic/v1/execution")
@@ -24,26 +28,23 @@ public class SemanticExecutionDiagnosticsController {
 
     private final SemanticExecutionProperties execProps;
     private final SemanticExecutionMetricsRegistry metricsRegistry;
+    private final SemanticExecutionCircuitBreaker circuitBreaker;
 
     public SemanticExecutionDiagnosticsController(
             SemanticExecutionProperties execProps,
-            SemanticExecutionMetricsRegistry metricsRegistry) {
+            SemanticExecutionMetricsRegistry metricsRegistry,
+            SemanticExecutionCircuitBreaker circuitBreaker) {
         this.execProps       = execProps;
         this.metricsRegistry = metricsRegistry;
+        this.circuitBreaker  = circuitBreaker;
     }
 
-    /**
-     * Returns semantic execution activation status and lifetime counters.
-     *
-     * <p>Always returns HTTP 200. {@code active} is {@code true} whenever this
-     * endpoint is reachable — it confirms the execution path is wired into the
-     * server. The {@code serverUrl} and {@code datasourceId} fields show the
-     * configured delegation target (no credentials are exposed).
-     */
     @GetMapping(value = "/status", produces = "application/json")
     public ExecutionStatusResponse status() {
+        SemanticExecutionHealthSnapshot snap = circuitBreaker.snapshot();
+        boolean active = snap.status() != SemanticExecutionHealthStatus.DISABLED;
         return new ExecutionStatusResponse(
-                true,
+                active,
                 execProps.getServerUrl(),
                 execProps.getDatasourceId(),
                 new MetricsSnapshot(
@@ -53,7 +54,15 @@ public class SemanticExecutionDiagnosticsController {
                         metricsRegistry.successes(),
                         metricsRegistry.failures(),
                         metricsRegistry.timeouts(),
-                        metricsRegistry.errors()));
+                        metricsRegistry.errors()),
+                new HealthSnapshot(
+                        snap.status().name(),
+                        snap.failureCount(),
+                        snap.failureThreshold(),
+                        snap.lastSuccessAt(),
+                        snap.lastFailureAt(),
+                        snap.lastFailureReason(),
+                        snap.circuitOpenUntil()));
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -61,7 +70,8 @@ public class SemanticExecutionDiagnosticsController {
             boolean active,
             String serverUrl,
             String datasourceId,
-            MetricsSnapshot metrics) {}
+            MetricsSnapshot metrics,
+            HealthSnapshot health) {}
 
     public record MetricsSnapshot(
             long attempts,
@@ -71,4 +81,14 @@ public class SemanticExecutionDiagnosticsController {
             long failures,
             long timeouts,
             long errors) {}
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record HealthSnapshot(
+            String status,
+            int failureCount,
+            int failureThreshold,
+            Instant lastSuccessAt,
+            Instant lastFailureAt,
+            String lastFailureReason,
+            Instant circuitOpenUntil) {}
 }

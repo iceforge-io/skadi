@@ -1,7 +1,7 @@
 package org.iceforge.skadi.semantic;
 
-import com.fasterxml.jackson.databind.MapperFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import org.iceforge.skadi.semantic.service.SemanticExecutionCircuitBreaker;
+import org.iceforge.skadi.semantic.service.SemanticExecutionHealthStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
@@ -18,18 +18,22 @@ class SemanticExecutionDiagnosticsControllerTest {
 
     private static final String URL = "/api/semantic/v1/execution/status";
 
+    private static final String SERVER_URL = "http://skadi-server:8080";
+
     private MockMvc mockMvc;
     private SemanticExecutionMetricsRegistry metricsRegistry;
+    private SemanticExecutionCircuitBreaker circuitBreaker;
 
     @BeforeEach
     void setUp() {
         metricsRegistry = new SemanticExecutionMetricsRegistry();
+        circuitBreaker = SemanticExecutionCircuitBreaker.alwaysAllow(SERVER_URL);
 
         var execProps = new SemanticExecutionProperties();
-        execProps.setServerUrl("http://skadi-server:8080");
+        execProps.setServerUrl(SERVER_URL);
         execProps.setDatasourceId("prod-databricks");
 
-        var controller = new SemanticExecutionDiagnosticsController(execProps, metricsRegistry);
+        var controller = new SemanticExecutionDiagnosticsController(execProps, metricsRegistry, circuitBreaker);
         mockMvc = MockMvcBuilders
                 .standaloneSetup(controller)
                 .build();
@@ -110,5 +114,58 @@ class SemanticExecutionDiagnosticsControllerTest {
         mockMvc.perform(get(URL))
                 .andExpect(jsonPath("$.metrics.timeouts").value(1))
                 .andExpect(jsonPath("$.metrics.errors").value(1));
+    }
+
+    // ── Health snapshot shape ─────────────────────────────────────────────────
+
+    @Test
+    void status_healthStatusIsHealthy() throws Exception {
+        mockMvc.perform(get(URL))
+                .andExpect(jsonPath("$.health.status").value("HEALTHY"));
+    }
+
+    @Test
+    void status_healthFailureCountStartsAtZero() throws Exception {
+        mockMvc.perform(get(URL))
+                .andExpect(jsonPath("$.health.failureCount").value(0));
+    }
+
+    @Test
+    void status_healthExposesFailureThreshold() throws Exception {
+        mockMvc.perform(get(URL))
+                .andExpect(jsonPath("$.health.failureThreshold").isNumber());
+    }
+
+    @Test
+    void status_healthNullTimestampsOmitted() throws Exception {
+        mockMvc.perform(get(URL))
+                .andExpect(jsonPath("$.health.lastSuccessAt").doesNotExist())
+                .andExpect(jsonPath("$.health.lastFailureAt").doesNotExist())
+                .andExpect(jsonPath("$.health.circuitOpenUntil").doesNotExist());
+    }
+
+    @Test
+    void status_disabled_activeIsFalse() throws Exception {
+        var execProps = new SemanticExecutionProperties();
+        execProps.setServerUrl(SERVER_URL);
+        execProps.setDatasourceId("prod-databricks");
+
+        var disabledCb = SemanticExecutionCircuitBreaker.disabled(SERVER_URL);
+        var controller = new SemanticExecutionDiagnosticsController(
+                execProps, new SemanticExecutionMetricsRegistry(), disabledCb);
+        var mvc = MockMvcBuilders.standaloneSetup(controller).build();
+
+        mvc.perform(get(URL))
+                .andExpect(jsonPath("$.active").value(false))
+                .andExpect(jsonPath("$.health.status").value(
+                        SemanticExecutionHealthStatus.DISABLED.name()));
+    }
+
+    @Test
+    void status_noSecretsExposed() throws Exception {
+        mockMvc.perform(get(URL))
+                .andExpect(jsonPath("$.password").doesNotExist())
+                .andExpect(jsonPath("$.jdbcPassword").doesNotExist())
+                .andExpect(jsonPath("$.token").doesNotExist());
     }
 }

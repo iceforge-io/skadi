@@ -349,7 +349,8 @@ class ServiceBoundaryTest {
                 java.net.http.HttpClient.newHttpClient(),
                 /*pollIntervalMs=*/ 10L,
                 /*maxWaitMs=*/ 5_000L,
-                NoOpSemanticExecutionMetrics.INSTANCE);
+                NoOpSemanticExecutionMetrics.INSTANCE,
+                SemanticExecutionCircuitBreaker.alwaysAllow(baseUrl));
     }
 
     /**
