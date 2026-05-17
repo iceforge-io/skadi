@@ -49,12 +49,21 @@ Debt item **L10** documents the longer-term concern:
 Should a future lane route SQL gateway queries through `skadi-server` as well,
 converging to a single JDBC pool, a single cache, and a single execution authority?
 
-This is Option 3 from DQR-002:
+## Options
 
-| Approach | Summary |
-|---|---|
-| Full convergence (Option 3) | Both gateway and semantic path delegate JDBC to `skadi-server`. Single pool, single cache, resolves L10 fully. |
-| Stay on partial convergence (Option 4, current) | Gateway keeps its direct JDBC path. Two pools and caches persist. L10 remains a known limitation. |
+| # | Option | Summary | Pros | Cons |
+|---|---|---|---|---|
+| 1 | Keep dual execution paths | Semantic execution delegates to `skadi-server`; SQL gateway remains direct | Lowest gateway risk; preserves known SQL client behavior | Two JDBC/cache owners persist; duplicated execution concerns remain |
+| 2 | Converge SQL gateway through `skadi-server` | Gateway delegates execution to server query execution boundary | One JDBC/cache owner; cleaner platform architecture; resolves L10 more fully | Higher blast radius; requires careful Tableau/client regression testing |
+| 3 | Introduce a shared execution library | Both server and gateway call a shared execution module in-process | Avoids network hop; reduces duplicated logic | Still complex; may blur module boundaries; deployment coupling increases |
+| 4 | Phased convergence | Add optional gateway delegation behind config, soak, then migrate | Controlled migration; measurable risk reduction | More temporary complexity; requires dual-mode test coverage |
+
+## Current leaning
+
+Option 4 (phased convergence) is the safest likely path. The SQL gateway is a
+compatibility surface for BI clients. Convergence should be tested behind a feature
+flag or configuration switch, with SQL client regression coverage and
+production-like soak before becoming the default.
 
 ---
 
