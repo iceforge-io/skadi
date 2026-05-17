@@ -17,6 +17,8 @@ They are immutable once accepted. Superseded ADRs are marked but not deleted.
 | [ADR-008](ADR-008-lane-c-scope.md) | Lane C — Contracts, Skeletons, and Boundaries | Accepted |
 | [ADR-009](ADR-009-contracts-before-planning.md) | Semantic Contracts Before Semantic Planning | Accepted |
 | [ADR-010](ADR-010-cache-positioning.md) | Cache Positioning — Between Databricks and All Consumers | Accepted |
+| [ADR-011](ADR-011-contract-definition-format-json-canonical.md) | Contract Definition Format — JSON as Canonical Runtime Format | Accepted |
+| [ADR-012](ADR-012-buddy-chat-semantic-model-interrogation.md) | Buddy Chat Interrogates Semantic Model for Query Execution and Semantic Explanation | Accepted |
 
 ---
 
