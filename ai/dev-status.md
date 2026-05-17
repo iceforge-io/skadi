@@ -354,6 +354,16 @@ Tests: `ScreenContextModelTest` (35), `Adr012FitnessTest` (21), `SemanticRequest
 
 ---
 
+## Lane F — Semantic Execution Resilience and Operational Hardening
+
+| Story | Description | Status | Issue |
+|---|---|---|---|
+| F1 | Semantic execution health, readiness, and circuit-breaker behavior | 🔲 | #110 |
+
+**Epic:** #109 — harden the Lane E semantic execution delegation path before buddy-chat, dashboard explanation, or gateway convergence depend on it.
+
+---
+
 ## Lane E — Semantic Execution Activation (In Progress)
 
 | Story | Description | Status | Commit | Issue |
