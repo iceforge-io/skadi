@@ -243,14 +243,39 @@ class ContractCompositionTest {
     }
 
     @Test
-    void composition_skadiServerSkeleton_throwsUnsupported_withDqrReference() {
-        var svc = new SkadiServerQueryExecutionService();
-        var req = QueryExecutionRequest.sqlOnly(CTX, NORMALIZED_SQL, CacheContract.none());
-        var ex  = assertThrows(UnsupportedOperationException.class, () -> svc.execute(req));
-        assertTrue(ex.getMessage().contains("not yet activated"),
-                "message must say 'not yet activated'");
-        assertTrue(ex.getMessage().contains("DQR-002"),
-                "message must reference DQR-002");
+    void composition_skadiServerActivated_delegatesExecution() throws Exception {
+        // Lane E activation: SkadiServerQueryExecutionService delegates via HTTP.
+        // Verified with a hand-rolled fake that returns SUCCEEDED immediately.
+        String respJson = "{\"queryId\":\"q1\",\"state\":\"SUCCEEDED\","
+                + "\"resultUrl\":\"/api/v1/queries/q1/results\","
+                + "\"expiresAt\":\"2030-01-01T00:00:00Z\"}";
+
+        var fakeServer = com.sun.net.httpserver.HttpServer.create(
+                new java.net.InetSocketAddress(0), 0);
+        fakeServer.createContext("/api/v1/queries", exchange -> {
+            exchange.getRequestBody().readAllBytes();
+            byte[] bytes = respJson.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, bytes.length);
+            exchange.getResponseBody().write(bytes);
+            exchange.close();
+        });
+        fakeServer.start();
+        try {
+            int port = fakeServer.getAddress().getPort();
+            var svc = new SkadiServerQueryExecutionService(
+                    "http://localhost:" + port,
+                    "jdbc:h2:mem:test", "sa", "",
+                    new ObjectMapper().registerModule(new JavaTimeModule()));
+
+            var req = QueryExecutionRequest.sqlOnly(CTX, NORMALIZED_SQL, CacheContract.none());
+            var result = svc.execute(req);
+
+            assertEquals(org.iceforge.skadi.semantic.service.ExecutionStatus.COMPLETED, result.status());
+            assertEquals(CacheEntryState.FRESH, result.cacheState());
+            assertEquals(NORMALIZED_SQL, result.cacheIdentity().normalizedSql());
+        } finally {
+            fakeServer.stop(0);
+        }
     }
 
     // ── Mutable-input defense: cross-lane boundary ────────────────────────────

@@ -1,10 +1,14 @@
 package org.iceforge.skadi.semantic;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.iceforge.skadi.jdbc.SkadiJdbcProperties;
 import org.iceforge.skadi.semantic.loader.ContractLoadException;
 import org.iceforge.skadi.semantic.registry.ContractRegistry;
 import org.iceforge.skadi.semantic.registry.ContractRegistryPopulationException;
 import org.iceforge.skadi.semantic.registry.ContractRegistryPopulator;
+import org.iceforge.skadi.semantic.service.QueryExecutionService;
 import org.iceforge.skadi.semantic.service.RegistrySemanticContractResolver;
+import org.iceforge.skadi.semantic.service.SkadiServerQueryExecutionService;
 import org.iceforge.skadi.semantic.validation.ContractValidationSeverity;
 import org.iceforge.skadi.semantic.validation.SemanticContractValidator;
 import org.slf4j.Logger;
@@ -17,15 +21,18 @@ import java.nio.file.Path;
 import java.util.List;
 
 /**
- * Spring configuration for the semantic contract metadata feature (Lane D, D7).
+ * Spring configuration for the semantic contract metadata and execution features.
  *
- * <p>Creates three beans:
+ * <p>Creates four beans:
  * <ul>
  *   <li>{@code semanticContractRegistry} — read-only {@link ContractRegistry};
  *       empty when the feature is disabled or no locations are configured</li>
  *   <li>{@code semanticContractValidator} — stateless {@link SemanticContractValidator}</li>
  *   <li>{@code semanticContractResolver} — {@link RegistrySemanticContractResolver}
  *       backed by the registry</li>
+ *   <li>{@code queryExecutionService} — Lane E: {@link SkadiServerQueryExecutionService}
+ *       that delegates semantic query execution to skadi-server's {@code POST /api/v1/queries}
+ *       endpoint (DQR-002 resolved, Option 4 — partial convergence)</li>
  * </ul>
  *
  * <p>Safe-defaults: if {@code skadi.semantic.contracts.enabled} is {@code false}
@@ -35,7 +42,7 @@ import java.util.List;
  * metadata endpoint operational even when contract files are temporarily unavailable.
  */
 @Configuration
-@EnableConfigurationProperties(SemanticContractProperties.class)
+@EnableConfigurationProperties({SemanticContractProperties.class, SemanticExecutionProperties.class})
 public class SemanticContractConfiguration {
 
     private static final Logger log = LoggerFactory.getLogger(SemanticContractConfiguration.class);
@@ -89,5 +96,35 @@ public class SemanticContractConfiguration {
     public RegistrySemanticContractResolver semanticContractResolver(
             ContractRegistry semanticContractRegistry) {
         return RegistrySemanticContractResolver.of(semanticContractRegistry);
+    }
+
+    /**
+     * Lane E — Semantic execution activation (DQR-002, Option 4).
+     *
+     * <p>Wires {@link SkadiServerQueryExecutionService} to delegate semantic query execution
+     * to skadi-server's {@code POST /api/v1/queries} endpoint. The JDBC credentials forwarded
+     * with each request are resolved from the datasource identified by
+     * {@code skadi.semantic.execution.datasource-id}.
+     *
+     * <p>If the configured datasource does not exist in {@code skadi.jdbc.datasources},
+     * empty strings are substituted and the execution service will report a connection error
+     * at runtime — server startup is not affected.
+     */
+    @Bean
+    public QueryExecutionService queryExecutionService(
+            SemanticExecutionProperties execProps,
+            SkadiJdbcProperties jdbcProps,
+            ObjectMapper objectMapper) {
+
+        var datasource = jdbcProps.getDatasources().get(execProps.getDatasourceId());
+        String jdbcUrl      = datasource != null ? datasource.getJdbcUrl()  : "";
+        String jdbcUsername = datasource != null ? datasource.getUsername()  : null;
+        String jdbcPassword = datasource != null ? datasource.getPassword()  : null;
+
+        log.info("skadi.semantic.execution: wiring SkadiServerQueryExecutionService "
+                + "-> {} (datasource-id={})", execProps.getServerUrl(), execProps.getDatasourceId());
+
+        return new SkadiServerQueryExecutionService(
+                execProps.getServerUrl(), jdbcUrl, jdbcUsername, jdbcPassword, objectMapper);
     }
 }
