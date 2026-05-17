@@ -326,6 +326,29 @@ All D-lane issues closed. Committed directly to `main`.
 
 ---
 
+## Lane E1 — Semantic Metadata Foundation (Complete ✅)
+
+Stories #72–#82 (EPIC #82). Contract explanation metadata, ADR-012 fitness tests, and
+screen-context model — all committed to `main` as part of PR #94 (`ca87c72`).
+
+| Story | Description | Status | Issue |
+|---|---|---|---|
+| E1.1–E1.4 | Contract explanation metadata records | ✅ | #72–#75 |
+| E1.6 | Metadata API endpoints | ✅ | — |
+| E1.8 | Request validation endpoint | ✅ | — |
+| E1.9 | Screen-context and widget-binding model | ✅ | #80 |
+| E1.10 | ADR-012 fitness tests and guardrails | ✅ | #81 |
+
+Key model types (all in `org.iceforge.skadi.semantic.screen`):
+`DashboardScreenContext`, `WidgetSemanticBinding`, `BoundMeasure`, `BoundDimension`,
+`AppliedFilter`, `ContractBinding`, `UserEntitlementScope`, `ActiveWidgetContext`,
+`ExplainWidgetBindingRequest` — serializable model records only; no runtime, no LLM,
+no query execution, no SQL generation, `skadi-sql-gateway` untouched.
+
+Tests: `ScreenContextModelTest` (35), `Adr012FitnessTest` (21).
+
+---
+
 ## Lane E — Semantic Execution Activation (In Progress)
 
 | Story | Description | Status | Commit | Issue |
