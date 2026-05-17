@@ -417,7 +417,8 @@ class ContractValidatorTest {
                         List.of()),
                 measures, dimensions,
                 SemanticAccessPolicy.unrestricted(),
-                SemanticCachePolicy.none());
+                SemanticCachePolicy.none(),
+                null);
     }
 
     private static SemanticContract contractWithCachePolicy(String name, SemanticCachePolicy policy) {
@@ -427,7 +428,7 @@ class ContractValidatorTest {
                         new SemanticEndpoint("c", "s", "t"),
                         List.of(new SemanticRuleRef("R1", "r"))),
                 measures("m"), dimensions("d"),
-                SemanticAccessPolicy.unrestricted(), policy);
+                SemanticAccessPolicy.unrestricted(), policy, null);
     }
 
     private static List<SemanticMeasure> measures(String... names) {
@@ -440,11 +441,11 @@ class ContractValidatorTest {
 
     private static SemanticMeasure measure(String name) {
         return new SemanticMeasure(name, name, "SUM(" + name + ")",
-                SemanticFieldType.DECIMAL, "");
+                SemanticFieldType.DECIMAL, "", null);
     }
 
     private static SemanticDimension dimension(String name) {
-        return new SemanticDimension(name, name, SemanticFieldType.STRING, name, true, true);
+        return new SemanticDimension(name, name, SemanticFieldType.STRING, name, true, true, null);
     }
 
     private static SemanticQueryContract queryContract(String name, String sourceContract,

@@ -25,11 +25,11 @@ class SemanticContractTest {
     }
 
     static SemanticMeasure pnlMeasure() {
-        return new SemanticMeasure("pnl", "Total PnL", "SUM(pnl)", SemanticFieldType.DECIMAL, "");
+        return new SemanticMeasure("pnl", "Total PnL", "SUM(pnl)", SemanticFieldType.DECIMAL, "", null);
     }
 
     static SemanticDimension bookDim() {
-        return new SemanticDimension("book", "book", SemanticFieldType.STRING, "Trading Book", true, true);
+        return new SemanticDimension("book", "book", SemanticFieldType.STRING, "Trading Book", true, true, null);
     }
 
     static SemanticContract contract() {
@@ -41,7 +41,8 @@ class SemanticContractTest {
                 List.of(pnlMeasure()),
                 List.of(bookDim()),
                 SemanticAccessPolicy.unrestricted(),
-                SemanticCachePolicy.ttl(300L));
+                SemanticCachePolicy.ttl(300L),
+                null);
     }
 
     // ── SemanticContractVersion ───────────────────────────────────────────────
@@ -118,13 +119,13 @@ class SemanticContractTest {
     @Test
     void measure_rejectsBlankExpression() {
         assertThrows(IllegalArgumentException.class,
-                () -> new SemanticMeasure("pnl", "PnL", "", SemanticFieldType.DECIMAL, ""));
+                () -> new SemanticMeasure("pnl", "PnL", "", SemanticFieldType.DECIMAL, "", null));
     }
 
     @Test
     void measure_rejectsNullType() {
         assertThrows(NullPointerException.class,
-                () -> new SemanticMeasure("pnl", "PnL", "SUM(pnl)", null, ""));
+                () -> new SemanticMeasure("pnl", "PnL", "SUM(pnl)", null, "", null));
     }
 
     // ── SemanticDimension ─────────────────────────────────────────────────────
@@ -141,7 +142,7 @@ class SemanticContractTest {
 
     @Test
     void dimension_nonFilterableNonGroupable() {
-        var d = new SemanticDimension("id", "id", SemanticFieldType.LONG, "ID", false, false);
+        var d = new SemanticDimension("id", "id", SemanticFieldType.LONG, "ID", false, false, null);
         assertFalse(d.filterable());
         assertFalse(d.groupable());
     }
@@ -190,7 +191,7 @@ class SemanticContractTest {
         var c = new SemanticContract(
                 "c", new SemanticContractVersion("1.0.0"), "",
                 entity(), mutable, List.of(),
-                SemanticAccessPolicy.unrestricted(), SemanticCachePolicy.none());
+                SemanticAccessPolicy.unrestricted(), SemanticCachePolicy.none(), null);
         mutable.add(pnlMeasure());           // mutate original
         assertEquals(1, c.measures().size()); // contract unaffected
     }
@@ -208,7 +209,7 @@ class SemanticContractTest {
                 () -> new SemanticContract(
                         " ", new SemanticContractVersion("1.0.0"), "",
                         entity(), List.of(), List.of(),
-                        SemanticAccessPolicy.unrestricted(), SemanticCachePolicy.none()));
+                        SemanticAccessPolicy.unrestricted(), SemanticCachePolicy.none(), null));
     }
 
     @Test
@@ -216,7 +217,7 @@ class SemanticContractTest {
         assertThrows(NullPointerException.class,
                 () -> new SemanticContract(
                         "c", null, "", entity(), List.of(), List.of(),
-                        SemanticAccessPolicy.unrestricted(), SemanticCachePolicy.none()));
+                        SemanticAccessPolicy.unrestricted(), SemanticCachePolicy.none(), null));
     }
 
     @Test
@@ -232,7 +233,7 @@ class SemanticContractTest {
         assertThrows(NullPointerException.class,
                 () -> new SemanticContract(
                         "c", new SemanticContractVersion("1.0.0"), "", entity(),
-                        List.of(), List.of(), null, SemanticCachePolicy.none()));
+                        List.of(), List.of(), null, SemanticCachePolicy.none(), null));
     }
 
     @Test
@@ -240,6 +241,6 @@ class SemanticContractTest {
         assertThrows(NullPointerException.class,
                 () -> new SemanticContract(
                         "c", new SemanticContractVersion("1.0.0"), "", entity(),
-                        List.of(), List.of(), SemanticAccessPolicy.unrestricted(), null));
+                        List.of(), List.of(), SemanticAccessPolicy.unrestricted(), null, null));
     }
 }

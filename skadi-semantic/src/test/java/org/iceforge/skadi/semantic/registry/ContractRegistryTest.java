@@ -42,7 +42,8 @@ class ContractRegistryTest {
                 List.of(),
                 List.of(),
                 SemanticAccessPolicy.unrestricted(),
-                SemanticCachePolicy.none());
+                SemanticCachePolicy.none(),
+                null);
     }
 
     // ── register / findByName ─────────────────────────────────────────────────
