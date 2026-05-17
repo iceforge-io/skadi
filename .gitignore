@@ -83,3 +83,4 @@ Thumbs.db
 data/
 # ==========
 
+.claude/settings.local.json
