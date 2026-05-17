@@ -8,6 +8,7 @@ import org.iceforge.skadi.semantic.registry.ContractRegistryPopulationException;
 import org.iceforge.skadi.semantic.registry.ContractRegistryPopulator;
 import org.iceforge.skadi.semantic.service.QueryExecutionService;
 import org.iceforge.skadi.semantic.service.RegistrySemanticContractResolver;
+import org.iceforge.skadi.semantic.service.SemanticExecutionCircuitBreaker;
 import org.iceforge.skadi.semantic.service.SkadiServerQueryExecutionService;
 import org.iceforge.skadi.semantic.validation.ContractValidationSeverity;
 import org.iceforge.skadi.semantic.validation.SemanticContractValidator;
@@ -18,6 +19,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import java.nio.file.Path;
+import java.time.Clock;
 import java.util.List;
 
 /**
@@ -115,10 +117,6 @@ public class SemanticContractConfiguration {
      */
     /**
      * Lane E E2 — Semantic execution metrics registry.
-     *
-     * <p>Provides in-memory counters for all semantic execution outcomes. Wired into
-     * {@link #queryExecutionService} so that every delegation attempt is observable
-     * via {@code GET /api/semantic/v1/execution/status}.
      */
     @Bean
     public SemanticExecutionMetricsRegistry semanticExecutionMetricsRegistry() {
@@ -126,23 +124,42 @@ public class SemanticContractConfiguration {
     }
 
     /**
-     * Lane E E1 — Semantic execution activation (DQR-002, Option 4).
+     * Lane F F1 — Semantic execution circuit breaker.
      *
-     * <p>Wires {@link SkadiServerQueryExecutionService} to delegate semantic query execution
-     * to skadi-server's {@code POST /api/v1/queries} endpoint. The JDBC credentials forwarded
-     * with each request are resolved from the datasource identified by
-     * {@code skadi.semantic.execution.datasource-id}.
+     * <p>Guards {@link SkadiServerQueryExecutionService} against cascading failures.
+     * When {@code skadi.semantic.execution.enabled=false} the circuit breaker is created
+     * in DISABLED state and all calls are blocked. When
+     * {@code skadi.semantic.execution.circuit-breaker.enabled=false} the circuit breaker
+     * records failures but never opens — effectively disabling the tripping behaviour.
+     */
+    @Bean
+    public SemanticExecutionCircuitBreaker semanticExecutionCircuitBreaker(
+            SemanticExecutionProperties execProps) {
+        var cb = execProps.getCircuitBreaker();
+        boolean cbEnabled = execProps.isEnabled() && cb.isEnabled();
+        log.info("skadi.semantic.execution: circuit-breaker enabled={} threshold={} openDurationMs={}",
+                cbEnabled, cb.getFailureThreshold(), cb.getOpenDurationMs());
+        return new SemanticExecutionCircuitBreaker(
+                cbEnabled,
+                cb.getFailureThreshold(),
+                cb.getOpenDurationMs(),
+                execProps.getServerUrl(),
+                Clock.systemUTC());
+    }
+
+    /**
+     * Lane E E1 + F F1 — Semantic execution service with resilience.
      *
-     * <p>If the configured datasource does not exist in {@code skadi.jdbc.datasources},
-     * empty strings are substituted and the execution service will report a connection error
-     * at runtime — server startup is not affected.
+     * <p>Wires {@link SkadiServerQueryExecutionService} with the circuit breaker and metrics
+     * registry. JDBC credentials are resolved from the configured datasource.
      */
     @Bean
     public QueryExecutionService queryExecutionService(
             SemanticExecutionProperties execProps,
             SkadiJdbcProperties jdbcProps,
             ObjectMapper objectMapper,
-            SemanticExecutionMetricsRegistry metricsRegistry) {
+            SemanticExecutionMetricsRegistry metricsRegistry,
+            SemanticExecutionCircuitBreaker circuitBreaker) {
 
         var datasource = jdbcProps.getDatasources().get(execProps.getDatasourceId());
         String jdbcUrl      = datasource != null ? datasource.getJdbcUrl()  : "";
@@ -150,10 +167,11 @@ public class SemanticContractConfiguration {
         String jdbcPassword = datasource != null ? datasource.getPassword()  : null;
 
         log.info("skadi.semantic.execution: wiring SkadiServerQueryExecutionService "
-                + "-> {} (datasource-id={})", execProps.getServerUrl(), execProps.getDatasourceId());
+                + "-> {} (datasource-id={} enabled={})",
+                execProps.getServerUrl(), execProps.getDatasourceId(), execProps.isEnabled());
 
         return new SkadiServerQueryExecutionService(
                 execProps.getServerUrl(), jdbcUrl, jdbcUsername, jdbcPassword,
-                objectMapper, metricsRegistry);
+                objectMapper, metricsRegistry, circuitBreaker);
     }
 }

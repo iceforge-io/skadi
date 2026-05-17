@@ -1,9 +1,9 @@
 # Skadi — Development Status
 
 > Updated: 2026-05-17
-> Branch: `main`
-> Last commit: `03ecafc` — Lane E E2: semantic execution observability and diagnostics — skadi#104
-> Build: ✅ 732 tests passing (`mvn verify -pl skadi-semantic,skadi-server -am`; gateway test counts unchanged)
+> Branch: `feature/110-semantic-execution-resilience`
+> Last commit: pending — Lane F F1: semantic execution circuit-breaker and resilience — skadi#110
+> Build: ✅ 760 tests passing (skadi-semantic: 549, skadi-server: 211; gateway unchanged)
 
 ---
 
@@ -358,18 +358,54 @@ Tests: `ScreenContextModelTest` (35), `Adr012FitnessTest` (21), `SemanticRequest
 
 | Story | Description | Status | Issue |
 |---|---|---|---|
-| F1 | Semantic execution health, readiness, and circuit-breaker behavior | 🔲 | #110 |
+| F1 | Semantic execution health, readiness, and circuit-breaker behavior | ✅ | #110 |
 
 **Epic:** #109 — harden the Lane E semantic execution delegation path before buddy-chat, dashboard explanation, or gateway convergence depend on it.
 
 ---
 
-## Lane E — Semantic Execution Activation (In Progress)
+## Lane F Completed — F1 Summary
+
+**Issue:** #110 | **Branch:** `feature/110-semantic-execution-resilience`
+
+**Lane F F1 scope:** Circuit-breaker protection for the semantic execution delegation path. `skadi-sql-gateway` intentionally untouched.
+
+### What was built in F1
+
+| Capability | Key Components | Module |
+|---|---|---|
+| Health status enum | `SemanticExecutionHealthStatus` — `DISABLED, HEALTHY, UNAVAILABLE, TIMEOUT, FAILED, CIRCUIT_OPEN` | `skadi-semantic` |
+| Health snapshot | `SemanticExecutionHealthSnapshot` — immutable record; `@JsonInclude(NON_NULL)` | `skadi-semantic` |
+| Circuit breaker | `SemanticExecutionCircuitBreaker` — thread-safe (`synchronized`), injectable `Clock`; half-open probe; `alwaysAllow` and `disabled` factories | `skadi-semantic` |
+| CB configuration | `SemanticExecutionProperties.CircuitBreakerProperties` — `enabled`, `failureThreshold`, `openDurationMs` | `skadi-server` |
+| Bean wiring | `semanticExecutionCircuitBreaker` bean in `SemanticContractConfiguration`; `queryExecutionService` takes CB as 5th param | `skadi-server` |
+| Diagnostics endpoint | `GET /api/semantic/v1/execution/status` — `health` block added: `status, failureCount, failureThreshold, lastSuccessAt, lastFailureAt, lastFailureReason, circuitOpenUntil` | `skadi-server` |
+| Tests | `SemanticExecutionCircuitBreakerTest` (22 tests); 6 new diagnostics controller tests for health snapshot and disabled/active states | `skadi-semantic`, `skadi-server` |
+
+### Test count progression
+
+| Milestone | skadi-semantic | skadi-server | Total |
+|---|---|---|---|
+| E2 complete (baseline) | 529 | 203 | 732 |
+| F1 complete | 549 | 211 | 760 |
+
+### Lane F non-goals (enforced throughout)
+
+- No `skadi-sql-gateway` changes
+- No semantic contract behavior changes
+- No LLM integration, UI runtime, or SQL generation
+- No execution abstraction redesign
+
+---
+
+## Lane E — Semantic Execution Activation (Complete ✅)
 
 | Story | Description | Status | Commit | Issue |
 |---|---|---|---|---|
 | E1 | Semantic execution activation (`SkadiServerQueryExecutionService`) | ✅ | `42e4a4a` | #97 |
 | E2 | Semantic execution observability and diagnostics | ✅ | `03ecafc` | #104 |
+
+All Lane E stories closed. PRs merged to `main`.
 
 ---
 

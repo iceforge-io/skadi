@@ -126,7 +126,8 @@ class SemanticExecutionMetricsTest {
                 HttpClient.newHttpClient(),
                 /*pollIntervalMs=*/ 10L,
                 /*maxWaitMs=*/ 5_000L,
-                m);
+                m,
+                SemanticExecutionCircuitBreaker.alwaysAllow(baseUrl));
     }
 
     static final class CapturingMetrics implements SemanticExecutionMetrics {

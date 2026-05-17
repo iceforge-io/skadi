@@ -8,6 +8,7 @@ import org.iceforge.skadi.semantic.service.ExecutionContext;
 import org.iceforge.skadi.semantic.service.ExecutionStatus;
 import org.iceforge.skadi.semantic.service.QueryExecutionRequest;
 import org.iceforge.skadi.semantic.service.QueryExecutionService;
+import org.iceforge.skadi.semantic.service.SemanticExecutionCircuitBreaker;
 import org.iceforge.skadi.semantic.service.SkadiServerQueryExecutionService;
 import org.junit.jupiter.api.Test;
 
@@ -50,7 +51,8 @@ class SemanticExecutionActivationTest {
         jdbcProps.setDatasources(Map.of("default", ds));
 
         QueryExecutionService svc = config.queryExecutionService(execProps, jdbcProps, new ObjectMapper(),
-                new SemanticExecutionMetricsRegistry());
+                new SemanticExecutionMetricsRegistry(),
+                SemanticExecutionCircuitBreaker.alwaysAllow(execProps.getServerUrl()));
 
         assertNotNull(svc);
         assertInstanceOf(SkadiServerQueryExecutionService.class, svc,
@@ -68,7 +70,8 @@ class SemanticExecutionActivationTest {
         var jdbcProps = new SkadiJdbcProperties(); // no datasources configured
 
         QueryExecutionService svc = config.queryExecutionService(execProps, jdbcProps, new ObjectMapper(),
-                new SemanticExecutionMetricsRegistry());
+                new SemanticExecutionMetricsRegistry(),
+                SemanticExecutionCircuitBreaker.alwaysAllow(execProps.getServerUrl()));
 
         assertNotNull(svc, "bean must be created even when datasource is absent");
         assertInstanceOf(SkadiServerQueryExecutionService.class, svc);
