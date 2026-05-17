@@ -1,7 +1,8 @@
 package org.iceforge.skadi.semantic.loader;
 
-import org.iceforge.skadi.semantic.contract.SemanticContract;
 import org.iceforge.skadi.semantic.contract.SemanticCacheStrategy;
+import org.iceforge.skadi.semantic.contract.SemanticContract;
+import org.iceforge.skadi.semantic.contract.SemanticDimension;
 import org.iceforge.skadi.semantic.contract.SemanticMeasure;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -251,6 +252,203 @@ class ContractLoaderTest {
     @Test
     void loadAll_nullList_throwsNullPointerException() {
         assertThrows(NullPointerException.class, () -> loader.loadAll(null));
+    }
+
+    // ── Enriched fixture — explanation metadata ────────────────────────────────
+
+    @Test
+    void enriched_loadsSuccessfully() throws Exception {
+        try (InputStream in = stream("/fixtures/enriched-contract.json")) {
+            SemanticContract c = loader.load(in);
+            assertEquals("cib_var", c.name());
+            assertEquals("2.0.0", c.version().value());
+            assertEquals(2, c.measures().size());
+            assertEquals(4, c.dimensions().size());
+        }
+    }
+
+    @Test
+    void enriched_contractExplanation_ownerAndUsage() throws Exception {
+        try (InputStream in = stream("/fixtures/enriched-contract.json")) {
+            var exp = loader.load(in).explanation();
+            assertNotNull(exp, "enriched contract must carry explanation metadata");
+            assertEquals("CIB Risk Technology", exp.owner());
+            assertNotNull(exp.intendedUsage());
+            assertTrue(exp.intendedUsage().contains("Basel III"),
+                    "intendedUsage should mention Basel III");
+        }
+    }
+
+    @Test
+    void enriched_contractExplanation_caveats() throws Exception {
+        try (InputStream in = stream("/fixtures/enriched-contract.json")) {
+            var caveats = loader.load(in).explanation().caveats();
+            assertNotNull(caveats);
+            assertEquals(3, caveats.size());
+            assertTrue(caveats.get(0).contains("8 AM UTC"),
+                    "first caveat should mention data availability time");
+        }
+    }
+
+    @Test
+    void enriched_contractExplanation_grain() throws Exception {
+        try (InputStream in = stream("/fixtures/enriched-contract.json")) {
+            var grain = loader.load(in).explanation().grain();
+            assertNotNull(grain);
+            assertTrue(grain.contains("legal entity"), "grain should describe row-level granularity");
+        }
+    }
+
+    @Test
+    void enriched_contractExplanation_outputShapes() throws Exception {
+        try (InputStream in = stream("/fixtures/enriched-contract.json")) {
+            var shapes = loader.load(in).explanation().outputShapes();
+            assertNotNull(shapes);
+            assertEquals(3, shapes.size());
+            assertTrue(shapes.contains("var_by_legal_entity"));
+            assertTrue(shapes.contains("var_by_risk_class"));
+        }
+    }
+
+    @Test
+    void enriched_contractExplanation_lineageHook() throws Exception {
+        try (InputStream in = stream("/fixtures/enriched-contract.json")) {
+            var hook = loader.load(in).explanation().lineageHook();
+            assertNotNull(hook);
+            assertEquals("RISK-LIN-VAR-01", hook.hookId());
+            assertNotNull(hook.description());
+        }
+    }
+
+    @Test
+    void enriched_contractExplanation_entitlementBehavior() throws Exception {
+        try (InputStream in = stream("/fixtures/enriched-contract.json")) {
+            var eb = loader.load(in).explanation().entitlementBehavior();
+            assertNotNull(eb);
+            assertEquals("ROW_FILTER", eb.mode());
+            assertNotNull(eb.description());
+        }
+    }
+
+    @Test
+    void enriched_contractExplanation_validGroupingPaths() throws Exception {
+        try (InputStream in = stream("/fixtures/enriched-contract.json")) {
+            var paths = loader.load(in).explanation().validGroupingPaths();
+            assertNotNull(paths);
+            assertEquals(7, paths.size());
+            assertTrue(paths.contains("cob_date"));
+            assertTrue(paths.contains("legal_entity,risk_class"));
+        }
+    }
+
+    @Test
+    void enriched_measureExplanation_var1d() throws Exception {
+        try (InputStream in = stream("/fixtures/enriched-contract.json")) {
+            SemanticMeasure var1d = loader.load(in).measures().stream()
+                    .filter(m -> m.name().equals("var_1d"))
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError("var_1d measure not found"));
+            assertNotNull(var1d.explanation(), "var_1d must carry explanation metadata");
+            assertNotNull(var1d.explanation().intendedUsage());
+            assertTrue(var1d.explanation().intendedUsage().contains("regulatory capital"),
+                    "intendedUsage should mention regulatory capital");
+            assertNotNull(var1d.explanation().caveats());
+            assertEquals(2, var1d.explanation().caveats().size());
+        }
+    }
+
+    @Test
+    void enriched_measureExplanation_var10d() throws Exception {
+        try (InputStream in = stream("/fixtures/enriched-contract.json")) {
+            SemanticMeasure var10d = loader.load(in).measures().stream()
+                    .filter(m -> m.name().equals("var_10d"))
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError("var_10d measure not found"));
+            assertNotNull(var10d.explanation());
+            assertTrue(var10d.explanation().intendedUsage().contains("Basel III"));
+            assertEquals(2, var10d.explanation().caveats().size());
+        }
+    }
+
+    @Test
+    void enriched_dimensionExplanation_legalEntity() throws Exception {
+        try (InputStream in = stream("/fixtures/enriched-contract.json")) {
+            SemanticDimension le = loader.load(in).dimensions().stream()
+                    .filter(d -> d.name().equals("legal_entity"))
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError("legal_entity dimension not found"));
+            assertNotNull(le.explanation());
+            assertNotNull(le.explanation().description());
+            assertTrue(le.explanation().description().contains("legal entity"),
+                    "description should describe the legal entity code");
+            assertEquals(1, le.explanation().caveats().size());
+        }
+    }
+
+    @Test
+    void enriched_dimensionExplanation_riskClass() throws Exception {
+        try (InputStream in = stream("/fixtures/enriched-contract.json")) {
+            SemanticDimension rc = loader.load(in).dimensions().stream()
+                    .filter(d -> d.name().equals("risk_class"))
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError("risk_class dimension not found"));
+            assertNotNull(rc.explanation());
+            assertTrue(rc.explanation().description().contains("FRTB"));
+        }
+    }
+
+    @Test
+    void enriched_dimensionExplanation_desk_groupableFalse() throws Exception {
+        try (InputStream in = stream("/fixtures/enriched-contract.json")) {
+            SemanticDimension desk = loader.load(in).dimensions().stream()
+                    .filter(d -> d.name().equals("desk"))
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError("desk dimension not found"));
+            assertFalse(desk.groupable(), "desk dimension must not be groupable");
+            assertNotNull(desk.explanation());
+            assertNotNull(desk.explanation().description());
+        }
+    }
+
+    @Test
+    void enriched_accessPolicy_hasThreeRoles() throws Exception {
+        try (InputStream in = stream("/fixtures/enriched-contract.json")) {
+            var policy = loader.load(in).accessPolicy();
+            assertEquals(3, policy.allowedRoles().size());
+            assertTrue(policy.allowedRoles().stream()
+                    .anyMatch(r -> r.name().equals("regulatory_reporting")));
+        }
+    }
+
+    @Test
+    void enriched_cachePolicyIsTtl14400() throws Exception {
+        try (InputStream in = stream("/fixtures/enriched-contract.json")) {
+            var cache = loader.load(in).cachePolicy();
+            assertEquals(SemanticCacheStrategy.TTL, cache.strategy());
+            assertEquals(14400L, cache.ttlSeconds());
+        }
+    }
+
+    @Test
+    void enriched_minimalFixture_unaffected() throws Exception {
+        // Existing minimal fixture must still load correctly after adding the enriched fixture.
+        try (InputStream in = stream("/fixtures/sample-contract.json")) {
+            SemanticContract c = loader.load(in);
+            assertEquals("mxl_risk", c.name());
+            assertNull(c.explanation(), "minimal fixture must not carry explanation metadata");
+        }
+    }
+
+    @Test
+    void enriched_loadAll_bothFixturesLoad(@TempDir Path tmp) throws Exception {
+        Path minimal  = copyFixtureToTempDir(tmp, "sample-contract.json",  "minimal.json");
+        Path enriched = copyFixtureToTempDir(tmp, "enriched-contract.json", "enriched.json");
+
+        var contracts = loader.loadAll(List.of(minimal, enriched));
+        assertEquals(2, contracts.size());
+        assertEquals("mxl_risk", contracts.get(0).name());
+        assertEquals("cib_var",  contracts.get(1).name());
+        assertNotNull(contracts.get(1).explanation());
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────────

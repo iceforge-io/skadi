@@ -1,0 +1,165 @@
+{
+  "name": "cib_var",
+  "version": {
+    "value": "2.0.0"
+  },
+  "description": "CIB VaR gold layer — daily 1-day and 10-day Value at Risk by legal entity and risk class",
+  "entity": {
+    "name": "cib_var",
+    "description": "CIB VaR gold layer physical table",
+    "endpoint": {
+      "catalog": "main",
+      "schema": "risk",
+      "table": "gold_var"
+    },
+    "ruleRefs": [
+      {
+        "ruleId": "BCBS239-01",
+        "description": "Data lineage and aggregation risk data requirement"
+      },
+      {
+        "ruleId": "FRTB-SA-01",
+        "description": "FRTB Standardised Approach reporting requirement"
+      }
+    ]
+  },
+  "measures": [
+    {
+      "name": "var_1d",
+      "label": "1-Day VaR (99%)",
+      "expression": "SUM(var_1d_99)",
+      "type": "DECIMAL",
+      "description": "1-day Value at Risk at 99% confidence level",
+      "explanation": {
+        "intendedUsage": "Use for daily regulatory capital consumption reporting. Do not aggregate across legal entities without FX normalisation.",
+        "caveats": [
+          "Assumes normal distribution — tail events may exceed stated VaR",
+          "Reported in USD; local currency positions are converted at end-of-day FX rates"
+        ]
+      }
+    },
+    {
+      "name": "var_10d",
+      "label": "10-Day VaR (99%)",
+      "expression": "SUM(var_10d_99)",
+      "type": "DECIMAL",
+      "description": "10-day Value at Risk at 99% confidence level (Basel scaling)",
+      "explanation": {
+        "intendedUsage": "Use for Basel III capital requirement calculations. Derived from 1-day VaR by the square-root-of-time rule.",
+        "caveats": [
+          "Not suitable for intraday risk monitoring",
+          "Regulatory use only — not for internal limit management"
+        ]
+      }
+    }
+  ],
+  "dimensions": [
+    {
+      "name": "cob_date",
+      "column": "cob_date",
+      "type": "DATE",
+      "label": "Close of Business Date",
+      "filterable": true,
+      "groupable": true,
+      "explanation": {
+        "description": "The business date for which risk figures are calculated, typically T-1.",
+        "caveats": [
+          "Non-business days are excluded; the previous COB date carries forward"
+        ]
+      }
+    },
+    {
+      "name": "legal_entity",
+      "column": "legal_entity_code",
+      "type": "STRING",
+      "label": "Legal Entity",
+      "filterable": true,
+      "groupable": true,
+      "explanation": {
+        "description": "Short code identifying the regulated legal entity (e.g. CIBUK, CIBNA).",
+        "caveats": [
+          "Legal entity codes may change during restructuring; historical codes are preserved"
+        ]
+      }
+    },
+    {
+      "name": "risk_class",
+      "column": "risk_class",
+      "type": "STRING",
+      "label": "Risk Class",
+      "filterable": true,
+      "groupable": true,
+      "explanation": {
+        "description": "FRTB risk class (e.g. IR, FX, EQ, CR, CM) to which the position is attributed.",
+        "caveats": [
+          "Risk class assignment follows FRTB SA bucketing rules and may differ from internal classifications"
+        ]
+      }
+    },
+    {
+      "name": "desk",
+      "column": "desk_id",
+      "type": "STRING",
+      "label": "Trading Desk",
+      "filterable": true,
+      "groupable": false,
+      "explanation": {
+        "description": "Internal desk identifier. Grouping by desk is not permitted for regulatory reporting.",
+        "caveats": [
+          "Desk granularity is below the level required for regulatory aggregation"
+        ]
+      }
+    }
+  ],
+  "accessPolicy": {
+    "allowedRoles": [
+      {"name": "risk_analyst"},
+      {"name": "risk_viewer"},
+      {"name": "regulatory_reporting"}
+    ],
+    "allowedPrincipals": [
+      {"type": "GROUP", "name": "cib-risk-team"},
+      {"type": "GROUP", "name": "regulatory-reporting-team"}
+    ],
+    "ruleRefs": [
+      {"ruleId": "GOV-FRTB-01", "description": "FRTB data access governance policy"}
+    ]
+  },
+  "cachePolicy": {
+    "strategy": "TTL",
+    "ttlSeconds": 14400,
+    "ruleRefs": []
+  },
+  "explanation": {
+    "owner": "CIB Risk Technology",
+    "intendedUsage": "Use for daily regulatory VaR reporting under Basel III and FRTB. Suitable for legal-entity-level and risk-class-level aggregation. Not suitable for intraday risk monitoring.",
+    "caveats": [
+      "Data is available after 8 AM UTC; early-morning queries may return the previous COB",
+      "FX rates used for normalisation are end-of-day rates from the market data golden source",
+      "Historical restatements are marked via the 'restated' flag on the underlying table"
+    ],
+    "grain": "One row per legal entity, risk class, desk, and close-of-business date",
+    "outputShapes": [
+      "var_by_legal_entity",
+      "var_by_risk_class",
+      "var_by_legal_entity_and_risk_class"
+    ],
+    "lineageHook": {
+      "hookId": "RISK-LIN-VAR-01",
+      "description": "BCBS 239 compliant lineage hook for CIB VaR aggregation pipeline"
+    },
+    "entitlementBehavior": {
+      "mode": "ROW_FILTER",
+      "description": "Rows are filtered by the caller's legal entity entitlement set; cross-entity aggregation requires the cib-risk-team group membership"
+    },
+    "validGroupingPaths": [
+      "cob_date",
+      "legal_entity",
+      "risk_class",
+      "cob_date,legal_entity",
+      "cob_date,risk_class",
+      "legal_entity,risk_class",
+      "cob_date,legal_entity,risk_class"
+    ]
+  }
+}
