@@ -1,9 +1,9 @@
 # Skadi — Development Status
 
 > Updated: 2026-05-17
-> Branch: `feature/97-lane-e-semantic-execution-activation`
-> Last commit: `42e4a4a` — Lane E semantic execution activation — skadi#97
-> Build: ✅ 710 tests passing (`mvn verify -pl skadi-semantic,skadi-server -am`; gateway test counts unchanged)
+> Branch: `main`
+> Last commit: `03ecafc` — Lane E E2: semantic execution observability and diagnostics — skadi#104
+> Build: ✅ 732 tests passing (`mvn verify -pl skadi-semantic,skadi-server -am`; gateway test counts unchanged)
 
 ---
 
@@ -331,6 +331,34 @@ All D-lane issues closed. Committed directly to `main`.
 | Story | Description | Status | Commit | Issue |
 |---|---|---|---|---|
 | E1 | Semantic execution activation (`SkadiServerQueryExecutionService`) | ✅ | `42e4a4a` | #97 |
+| E2 | Semantic execution observability and diagnostics | ✅ | `03ecafc` | #104 |
+
+---
+
+## Lane E Completed — E2 Summary
+
+**Issue:** #104 | **PR:** #105 | **Commit:** `03ecafc`
+
+**Lane E E2 scope:** Add structured logging, in-memory metrics counters, and a diagnostics endpoint for the Lane E semantic execution path. `skadi-sql-gateway` intentionally untouched.
+
+### What was built in E2
+
+| Capability | Key Components | Module |
+|---|---|---|
+| Metrics interface | `SemanticExecutionMetrics` — 7 outcome methods; exactly one terminal counter per `execute()` call | `skadi-semantic` |
+| No-op default | `NoOpSemanticExecutionMetrics` — singleton, used when no recording is needed | `skadi-semantic` |
+| Structured logging | SLF4J at DEBUG/INFO/WARN/ERROR on every execution branch in `SkadiServerQueryExecutionService` | `skadi-semantic` |
+| Counter registry | `SemanticExecutionMetricsRegistry` — `@Component`, thread-safe `LongAdder` counters | `skadi-server` |
+| Diagnostics endpoint | `GET /api/semantic/v1/execution/status` — returns `active`, `serverUrl`, `datasourceId`, lifetime counter snapshot | `skadi-server` |
+| Tests | `SemanticExecutionMetricsTest` (5), `SemanticExecutionMetricsRegistryTest` (9), `SemanticExecutionDiagnosticsControllerTest` (8) | both |
+
+### Test count progression (Lane E complete)
+
+| Milestone | skadi-semantic | skadi-server | Total |
+|---|---|---|---|
+| D7 complete (baseline) | 378 | 116 | 494 |
+| E1 complete | 524 | 186 | 710 |
+| E2 complete | 529 | 203 | 732 |
 
 ---
 
@@ -357,13 +385,6 @@ All D-lane issues closed. Committed directly to `main`.
 | SQL gateway convergence | Explicitly deferred; tracked as future scope in DQR-004 |
 | `skadi-sql-gateway` | **Untouched** — no changes to gateway module in Lane E |
 | Test approach | Hand-rolled JDK `HttpServer` fakes — no Mockito, no Databricks, no Spring context |
-
-### Test count progression
-
-| Milestone | skadi-semantic | skadi-server | Total |
-|---|---|---|---|
-| D7 complete (baseline) | 378 | 116 | 494 |
-| E1 complete | 524 | 186 | 710 |
 
 ### Lane E non-goals (enforced throughout)
 
@@ -394,7 +415,7 @@ Architecture docs, ADRs, and DQRs:
 - `ai/dqr/DQR-003-lineage-market-risk-brain-seams.md` — lineage/MRB integration seams (Open)
 - `ai/dqr/DQR-004-sql-gateway-convergence.md` — full SQL gateway / semantic execution convergence (Open; future scope)
 
-Lane D is complete. Contracts are loadable, validateable, resolvable, and inspectable via a read-only HTTP endpoint. Lane E E1 activated `SkadiServerQueryExecutionService` — the semantic execution path now delegates to `skadi-server` via HTTP (DQR-002 resolved). SQL gateway convergence remains a future design question; see DQR-004.
+Lane D is complete. Contracts are loadable, validateable, resolvable, and inspectable via a read-only HTTP endpoint. Lane E E1 activated `SkadiServerQueryExecutionService` (DQR-002 resolved); Lane E E2 added structured logging, `SemanticExecutionMetrics` counters, and `GET /api/semantic/v1/execution/status` diagnostics. `skadi-sql-gateway` was untouched throughout Lane E. SQL gateway convergence remains a future design question; see DQR-004.
 
 ---
 
