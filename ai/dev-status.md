@@ -1,9 +1,9 @@
 # Skadi — Development Status
 
 > Updated: 2026-05-17
-> Branch: `feature/112-semantic-execution-readiness-runbook`
-> Last commit: pending — Lane F F2: semantic execution readiness and operator runbook — skadi#112
-> Build: ✅ 768 tests passing (skadi-semantic: 556, skadi-server: 212; gateway unchanged)
+> Branch: `feature/114-semantic-execution-resilience-integration-tests`
+> Last commit: pending — Lane F F3: semantic execution resilience integration tests — skadi#114
+> Build: ✅ 787 tests passing (skadi-semantic: 556, skadi-server: 231; gateway unchanged)
 
 ---
 
@@ -360,8 +360,42 @@ Tests: `ScreenContextModelTest` (35), `Adr012FitnessTest` (21), `SemanticRequest
 |---|---|---|---|
 | F1 | Semantic execution health, readiness, and circuit-breaker behavior | ✅ | #110 |
 | F2 | Semantic execution readiness endpoint and operator runbook | ✅ | #112 |
+| F3 | Semantic execution resilience integration tests | ✅ | #114 |
 
 **Epic:** #109 — harden the Lane E semantic execution delegation path before buddy-chat, dashboard explanation, or gateway convergence depend on it.
+
+---
+
+## Lane F Completed — F3 Summary
+
+**Issue:** #114 | **Branch:** `feature/114-semantic-execution-resilience-integration-tests`
+
+**Lane F F3 scope:** Integration tests proving resilience, readiness, and diagnostics behavior through property binding, bean creation, and controller-level MockMvc assertions.
+
+### What was built in F3
+
+| Capability | Coverage | Module |
+|---|---|---|
+| Property binding | `Binder`-based tests verifying `skadi.semantic.execution.circuit-breaker.*` YAML binding (defaults, custom values, disabled flag) | `skadi-server` |
+| Bean creation | `SemanticContractConfiguration.semanticExecutionCircuitBreaker()` creates CB with correct threshold, URL, and disabled state | `skadi-server` |
+| Failure states in diagnostics | UNAVAILABLE, TIMEOUT, FAILED, CIRCUIT_OPEN → correct `readiness` field in response | `skadi-server` |
+| Full lifecycle | Failures → CIRCUIT_OPEN → clock-advanced probe → HEALTHY/READY recovery; probe failure re-opens | `skadi-server` |
+| Failure count | Increments correctly in diagnostics response across multiple `recordFailure` calls | `skadi-server` |
+| Secret safety | No `password`, `jdbcPassword`, `secret`, `token`, `credentials`, `jdbcUrl`, `username` in response | `skadi-server` |
+
+### Test count progression
+
+| Milestone | skadi-semantic | skadi-server | Total |
+|---|---|---|---|
+| F2 complete (baseline) | 556 | 212 | 768 |
+| F3 complete | 556 | 231 | 787 |
+
+### Lane F F3 non-goals (enforced throughout)
+
+- No `skadi-sql-gateway` changes
+- No real Databricks or network calls
+- No new API surface
+- No LLM integration, UI runtime, or SQL generation
 
 ---
 
