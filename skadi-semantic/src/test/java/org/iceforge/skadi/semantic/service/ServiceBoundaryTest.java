@@ -197,7 +197,7 @@ class ServiceBoundaryTest {
     static SemanticContract minimalContract() {
         var entity = new SemanticEntity("c", "", new SemanticEndpoint("cat", "sch", "tbl"), List.of());
         return new SemanticContract("c", new SemanticContractVersion("1.0.0"), "", entity,
-                List.of(), List.of(), SemanticAccessPolicy.unrestricted(), SemanticCachePolicy.none());
+                List.of(), List.of(), SemanticAccessPolicy.unrestricted(), SemanticCachePolicy.none(), null);
     }
 
     @Test

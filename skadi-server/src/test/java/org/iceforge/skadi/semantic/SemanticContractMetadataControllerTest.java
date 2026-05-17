@@ -183,7 +183,8 @@ class SemanticContractMetadataControllerTest {
                         new SemanticEndpoint("c", "s", "t"), List.of()),
                 List.of(), List.of(),
                 SemanticAccessPolicy.unrestricted(),
-                SemanticCachePolicy.none());
+                SemanticCachePolicy.none(),
+                null);
         Mockito.when(registry.list()).thenReturn(List.of(noMeasures));
 
         mockMvc.perform(get("/api/semantic/contracts/validation"))
@@ -242,12 +243,13 @@ class SemanticContractMetadataControllerTest {
                 new SemanticEntity("mxl_risk", "",
                         new SemanticEndpoint("main", "risk", "gold_risk"), List.of()),
                 List.of(
-                        new SemanticMeasure("pnl",       "PnL",   "SUM(pnl)",   SemanticFieldType.DECIMAL, ""),
-                        new SemanticMeasure("delta_risk", "Delta", "SUM(delta)", SemanticFieldType.DECIMAL, "")),
+                        new SemanticMeasure("pnl",       "PnL",   "SUM(pnl)",   SemanticFieldType.DECIMAL, "", null),
+                        new SemanticMeasure("delta_risk", "Delta", "SUM(delta)", SemanticFieldType.DECIMAL, "", null)),
                 List.of(
-                        new SemanticDimension("book", "book", SemanticFieldType.STRING, "Book", true, true)),
+                        new SemanticDimension("book", "book", SemanticFieldType.STRING, "Book", true, true, null)),
                 SemanticAccessPolicy.unrestricted(),
-                SemanticCachePolicy.ttl(7200L));
+                SemanticCachePolicy.ttl(7200L),
+                null);
     }
 
     private static SemanticContract minimalContract(String name) {
@@ -255,10 +257,11 @@ class SemanticContractMetadataControllerTest {
                 name, new SemanticContractVersion("1.0.0"), "",
                 new SemanticEntity(name, "",
                         new SemanticEndpoint("c", "s", "t"), List.of()),
-                List.of(new SemanticMeasure("m", "M", "SUM(m)", SemanticFieldType.DECIMAL, "")),
-                List.of(new SemanticDimension("d", "d", SemanticFieldType.STRING, "D", true, true)),
+                List.of(new SemanticMeasure("m", "M", "SUM(m)", SemanticFieldType.DECIMAL, "", null)),
+                List.of(new SemanticDimension("d", "d", SemanticFieldType.STRING, "D", true, true, null)),
                 SemanticAccessPolicy.unrestricted(),
-                SemanticCachePolicy.none());
+                SemanticCachePolicy.none(),
+                null);
     }
 
     private static SemanticContract contractWithCache(String name, SemanticCachePolicy policy) {
@@ -266,9 +269,10 @@ class SemanticContractMetadataControllerTest {
                 name, new SemanticContractVersion("1.0.0"), "",
                 new SemanticEntity(name, "",
                         new SemanticEndpoint("c", "s", "t"), List.of()),
-                List.of(new SemanticMeasure("m", "M", "SUM(m)", SemanticFieldType.DECIMAL, "")),
-                List.of(new SemanticDimension("d", "d", SemanticFieldType.STRING, "D", true, true)),
+                List.of(new SemanticMeasure("m", "M", "SUM(m)", SemanticFieldType.DECIMAL, "", null)),
+                List.of(new SemanticDimension("d", "d", SemanticFieldType.STRING, "D", true, true, null)),
                 SemanticAccessPolicy.unrestricted(),
-                policy);
+                policy,
+                null);
     }
 }

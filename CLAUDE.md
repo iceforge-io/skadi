@@ -84,7 +84,7 @@ skadi:
 - Repo: `iceforge-io/skadi`, project board: `iceforge-io/projects/1`
 - One commit per story, tagged `skadi#<issue>` in commit message
 - Close issues after pushing: `gh issue close <N> --repo iceforge-io/skadi`
-- Main branch is `main`; push directly (no PRs for solo dev)
+- Main branch is `main`; do not push to main directly; create and work on feature/<gh-isssue-#>-<meaingful-name> branches. When complete create PRs to ai-main-candidate branch
 
 ## Roadmap Lanes
 

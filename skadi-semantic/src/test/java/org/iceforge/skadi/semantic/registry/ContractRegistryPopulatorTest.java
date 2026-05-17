@@ -309,10 +309,11 @@ class ContractRegistryPopulatorTest {
                 name, new SemanticContractVersion("1.0.0"), "",
                 new SemanticEntity(name, "",
                         new SemanticEndpoint("c", "s", "t"), List.of()),
-                List.of(new SemanticMeasure("m", "M", "SUM(m)", SemanticFieldType.DECIMAL, "")),
-                List.of(new SemanticDimension("d", "d", SemanticFieldType.STRING, "D", true, true)),
+                List.of(new SemanticMeasure("m", "M", "SUM(m)", SemanticFieldType.DECIMAL, "", null)),
+                List.of(new SemanticDimension("d", "d", SemanticFieldType.STRING, "D", true, true, null)),
                 SemanticAccessPolicy.unrestricted(),
-                SemanticCachePolicy.none());
+                SemanticCachePolicy.none(),
+                null);
     }
 
     private static SemanticContract contractNoMeasures(String name) {
@@ -323,7 +324,8 @@ class ContractRegistryPopulatorTest {
                 List.of(),   // no measures → CONTRACT_NO_MEASURES warning
                 List.of(),
                 SemanticAccessPolicy.unrestricted(),
-                SemanticCachePolicy.none());
+                SemanticCachePolicy.none(),
+                null);
     }
 
     private static SemanticContract contractWithDatasetVersionCache(String name) {
@@ -333,8 +335,191 @@ class ContractRegistryPopulatorTest {
                         new SemanticEndpoint("c", "s", "t"), List.of()),
                 List.of(), List.of(),
                 SemanticAccessPolicy.unrestricted(),
-                new SemanticCachePolicy(SemanticCacheStrategy.DATASET_VERSION, null, List.of()));
+                new SemanticCachePolicy(SemanticCacheStrategy.DATASET_VERSION, null, List.of()),
+                null);
     }
+
+    // ── Enriched fixture — explanation metadata through registry boundary ──────
+
+    @Test
+    void enriched_contractExplanation_survivesRegistryBoundary(@TempDir Path tmp) throws Exception {
+        var registry = loadEnrichedRegistry(tmp);
+        var c = registry.findByName("cib_var")
+                .orElseThrow(() -> new AssertionError("cib_var not found in registry"));
+
+        assertNotNull(c.explanation(), "contract explanation must not be stripped by registry");
+        assertEquals("CIB Risk Technology", c.explanation().owner());
+        assertNotNull(c.explanation().intendedUsage());
+        assertTrue(c.explanation().intendedUsage().contains("Basel III"));
+    }
+
+    @Test
+    void enriched_contractExplanation_caveats_survivesRegistryBoundary(@TempDir Path tmp)
+            throws Exception {
+        var registry = loadEnrichedRegistry(tmp);
+        var exp = registry.findByName("cib_var")
+                .orElseThrow().explanation();
+
+        assertNotNull(exp.caveats());
+        assertEquals(3, exp.caveats().size());
+        assertTrue(exp.caveats().get(0).contains("8 AM UTC"));
+    }
+
+    @Test
+    void enriched_contractExplanation_grain_survivesRegistryBoundary(@TempDir Path tmp)
+            throws Exception {
+        var registry = loadEnrichedRegistry(tmp);
+        var grain = registry.findByName("cib_var").orElseThrow().explanation().grain();
+        assertNotNull(grain);
+        assertTrue(grain.contains("legal entity"));
+    }
+
+    @Test
+    void enriched_contractExplanation_outputShapes_survivesRegistryBoundary(@TempDir Path tmp)
+            throws Exception {
+        var registry = loadEnrichedRegistry(tmp);
+        var shapes = registry.findByName("cib_var").orElseThrow().explanation().outputShapes();
+        assertNotNull(shapes);
+        assertEquals(3, shapes.size());
+        assertTrue(shapes.contains("var_by_legal_entity"));
+    }
+
+    @Test
+    void enriched_contractExplanation_lineageHook_survivesRegistryBoundary(@TempDir Path tmp)
+            throws Exception {
+        var registry = loadEnrichedRegistry(tmp);
+        var hook = registry.findByName("cib_var").orElseThrow().explanation().lineageHook();
+        assertNotNull(hook);
+        assertEquals("RISK-LIN-VAR-01", hook.hookId());
+    }
+
+    @Test
+    void enriched_contractExplanation_entitlementBehavior_survivesRegistryBoundary(
+            @TempDir Path tmp) throws Exception {
+        var registry = loadEnrichedRegistry(tmp);
+        var eb = registry.findByName("cib_var").orElseThrow().explanation().entitlementBehavior();
+        assertNotNull(eb);
+        assertEquals("ROW_FILTER", eb.mode());
+        assertNotNull(eb.description());
+    }
+
+    @Test
+    void enriched_contractExplanation_validGroupingPaths_survivesRegistryBoundary(
+            @TempDir Path tmp) throws Exception {
+        var registry = loadEnrichedRegistry(tmp);
+        var paths = registry.findByName("cib_var").orElseThrow().explanation().validGroupingPaths();
+        assertNotNull(paths);
+        assertEquals(7, paths.size());
+        assertTrue(paths.contains("cob_date,legal_entity,risk_class"));
+    }
+
+    @Test
+    void enriched_measureExplanation_survivesRegistryBoundary(@TempDir Path tmp) throws Exception {
+        var registry = loadEnrichedRegistry(tmp);
+        var measures = registry.findByName("cib_var").orElseThrow().measures();
+
+        SemanticMeasure var1d = measures.stream()
+                .filter(m -> m.name().equals("var_1d"))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("var_1d not found"));
+
+        assertNotNull(var1d.explanation(), "measure explanation must not be stripped by registry");
+        assertTrue(var1d.explanation().intendedUsage().contains("regulatory capital"));
+        assertEquals(2, var1d.explanation().caveats().size());
+    }
+
+    @Test
+    void enriched_measureExplanation_bothMeasuresRetainMetadata(@TempDir Path tmp)
+            throws Exception {
+        var registry = loadEnrichedRegistry(tmp);
+        var measures = registry.findByName("cib_var").orElseThrow().measures();
+
+        for (SemanticMeasure m : measures) {
+            assertNotNull(m.explanation(),
+                    "measure " + m.name() + " should carry explanation metadata");
+            assertNotNull(m.explanation().intendedUsage());
+            assertNotNull(m.explanation().caveats());
+            assertFalse(m.explanation().caveats().isEmpty());
+        }
+    }
+
+    @Test
+    void enriched_dimensionExplanation_survivesRegistryBoundary(@TempDir Path tmp)
+            throws Exception {
+        var registry = loadEnrichedRegistry(tmp);
+        var dimensions = registry.findByName("cib_var").orElseThrow().dimensions();
+
+        SemanticDimension legalEntity = dimensions.stream()
+                .filter(d -> d.name().equals("legal_entity"))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("legal_entity not found"));
+
+        assertNotNull(legalEntity.explanation(),
+                "dimension explanation must not be stripped by registry");
+        assertNotNull(legalEntity.explanation().description());
+        assertTrue(legalEntity.explanation().description().contains("legal entity"));
+    }
+
+    @Test
+    void enriched_dimensionExplanation_allDimensionsRetainMetadata(@TempDir Path tmp)
+            throws Exception {
+        var registry = loadEnrichedRegistry(tmp);
+        var dimensions = registry.findByName("cib_var").orElseThrow().dimensions();
+
+        for (SemanticDimension d : dimensions) {
+            assertNotNull(d.explanation(),
+                    "dimension " + d.name() + " should carry explanation metadata");
+            assertNotNull(d.explanation().description());
+        }
+    }
+
+    @Test
+    void enriched_dimension_groupableAndFilterable_survivesRegistryBoundary(@TempDir Path tmp)
+            throws Exception {
+        var registry = loadEnrichedRegistry(tmp);
+        var dimensions = registry.findByName("cib_var").orElseThrow().dimensions();
+
+        SemanticDimension desk = dimensions.stream()
+                .filter(d -> d.name().equals("desk"))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("desk not found"));
+
+        assertFalse(desk.groupable(), "desk must not be groupable");
+        assertTrue(desk.filterable(), "desk must be filterable");
+    }
+
+    @Test
+    void enriched_forPrincipal_returnsCibVarWithExplanation(@TempDir Path tmp) throws Exception {
+        var registry = loadEnrichedRegistry(tmp);
+        var accessible = registry.forPrincipal("alice");
+
+        assertTrue(accessible.stream().anyMatch(c -> c.name().equals("cib_var")),
+                "cib_var must appear in forPrincipal result");
+        var cibVar = accessible.stream()
+                .filter(c -> c.name().equals("cib_var"))
+                .findFirst()
+                .orElseThrow();
+        assertNotNull(cibVar.explanation(), "explanation must be present via forPrincipal");
+    }
+
+    @Test
+    void minimal_fixture_hasNullExplanation_afterRegistration(@TempDir Path tmp) throws Exception {
+        Path f = copyFixture(tmp, "sample-contract.json", "mxl_risk.json");
+        var registry = populator.populateFromPaths(List.of(f)).registry();
+        var mxlRisk = registry.findByName("mxl_risk").orElseThrow();
+        assertNull(mxlRisk.explanation(),
+                "minimal fixture must not carry explanation metadata after registration");
+    }
+
+    /** Loads the enriched fixture into a registry via the full populateFromPaths path. */
+    private ContractRegistry loadEnrichedRegistry(Path tmp) throws Exception {
+        Path f = copyFixture(tmp, "enriched-contract.json", "cib_var.json");
+        var result = populator.populateFromPaths(List.of(f));
+        assertTrue(result.isSuccess(), "enriched fixture must pass validation");
+        return result.registry();
+    }
+
+    // ── Helpers ────────────────────────────────────────────────────────────────
 
     private Path copyFixture(Path tmp, String fixtureResource, String destName)
             throws Exception {
