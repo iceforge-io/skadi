@@ -73,13 +73,13 @@ class ContractCompositionTest {
                 "mxl_risk", "MXL risk gold layer",
                 new SemanticEndpoint("main", "risk", "gold_risk"),
                 List.of(new SemanticRuleRef("BCBS239-01", "lineage requirement")));
-        var pnl  = new SemanticMeasure("pnl", "Total PnL", "SUM(pnl)", SemanticFieldType.DECIMAL, "");
-        var book = new SemanticDimension("book", "book", SemanticFieldType.STRING, "Book", true, true);
+        var pnl  = new SemanticMeasure("pnl", "Total PnL", "SUM(pnl)", SemanticFieldType.DECIMAL, "", null);
+        var book = new SemanticDimension("book", "book", SemanticFieldType.STRING, "Book", true, true, null);
         return new SemanticContract(
                 "mxl_risk", new SemanticContractVersion("1.0.0"),
                 "MXL risk gold layer",
                 entity, List.of(pnl), List.of(book),
-                SemanticAccessPolicy.unrestricted(), SemanticCachePolicy.ttl(300L));
+                SemanticAccessPolicy.unrestricted(), SemanticCachePolicy.ttl(300L), null);
     }
 
     static SemanticQueryContract buildQueryContract() {
@@ -258,11 +258,11 @@ class ContractCompositionTest {
     @Test
     void defense_mutableListToSemanticContract_doesNotAffectMeasures() {
         var mutable = new ArrayList<SemanticMeasure>();
-        mutable.add(new SemanticMeasure("pnl", "PnL", "SUM(pnl)", SemanticFieldType.DECIMAL, ""));
+        mutable.add(new SemanticMeasure("pnl", "PnL", "SUM(pnl)", SemanticFieldType.DECIMAL, "", null));
         var entity   = new SemanticEntity("c", "", new SemanticEndpoint("a", "b", "c"), List.of());
         var contract = new SemanticContract("c", new SemanticContractVersion("1.0.0"), "", entity,
-                mutable, List.of(), SemanticAccessPolicy.unrestricted(), SemanticCachePolicy.none());
-        mutable.add(new SemanticMeasure("delta", "Delta", "SUM(delta)", SemanticFieldType.DECIMAL, ""));
+                mutable, List.of(), SemanticAccessPolicy.unrestricted(), SemanticCachePolicy.none(), null);
+        mutable.add(new SemanticMeasure("delta", "Delta", "SUM(delta)", SemanticFieldType.DECIMAL, "", null));
         assertEquals(1, contract.measures().size(),
                 "SemanticContract.measures must be defensively copied");
     }
@@ -299,7 +299,7 @@ class ContractCompositionTest {
         // registering a second contract does not affect the earlier snapshot
         var c2 = new SemanticContract("other", new SemanticContractVersion("1.0.0"), "",
                 new SemanticEntity("other", "", new SemanticEndpoint("a", "b", "c"), List.of()),
-                List.of(), List.of(), SemanticAccessPolicy.unrestricted(), SemanticCachePolicy.none());
+                List.of(), List.of(), SemanticAccessPolicy.unrestricted(), SemanticCachePolicy.none(), null);
         registry.register(c2);
         assertEquals(1, snapshot.size(), "earlier snapshot must not grow after registration");
         assertEquals(2, registry.list().size());

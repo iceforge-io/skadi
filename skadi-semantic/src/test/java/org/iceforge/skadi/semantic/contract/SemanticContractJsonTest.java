@@ -45,17 +45,17 @@ class SemanticContractJsonTest {
 
         var measures = List.of(
                 new SemanticMeasure("pnl", "Total PnL", "SUM(pnl)",
-                        SemanticFieldType.DECIMAL, "Sum of daily profit and loss"),
+                        SemanticFieldType.DECIMAL, "Sum of daily profit and loss", null),
                 new SemanticMeasure("delta_risk", "Delta Risk", "SUM(delta)",
-                        SemanticFieldType.DECIMAL, "Sum of delta sensitivities"));
+                        SemanticFieldType.DECIMAL, "Sum of delta sensitivities", null));
 
         var dimensions = List.of(
                 new SemanticDimension("cob_date", "cob_date", SemanticFieldType.DATE,
-                        "Close of Business Date", true, true),
+                        "Close of Business Date", true, true, null),
                 new SemanticDimension("book", "book", SemanticFieldType.STRING,
-                        "Trading Book", true, true),
+                        "Trading Book", true, true, null),
                 new SemanticDimension("desk", "desk", SemanticFieldType.STRING,
-                        "Trading Desk", true, false));
+                        "Trading Desk", true, false, null));
 
         var access = new SemanticAccessPolicy(
                 List.of(new SemanticRoleRef("risk_analyst"), new SemanticRoleRef("risk_viewer")),
@@ -69,7 +69,7 @@ class SemanticContractJsonTest {
                 "mxl_risk",
                 new SemanticContractVersion("1.0.0"),
                 "MXL risk gold layer — daily PnL and Greeks",
-                entity, measures, dimensions, access, cache);
+                entity, measures, dimensions, access, cache, null);
     }
 
     // ── SemanticContract round-trip ───────────────────────────────────────────
@@ -147,7 +147,7 @@ class SemanticContractJsonTest {
     @Test
     void roundTrip_SemanticMeasure() throws Exception {
         var m  = new SemanticMeasure("pnl", "Total PnL", "SUM(pnl)",
-                SemanticFieldType.DECIMAL, "desc");
+                SemanticFieldType.DECIMAL, "desc", null);
         var m2 = mapper.readValue(mapper.writeValueAsString(m), SemanticMeasure.class);
         assertEquals(m, m2);
         assertEquals(SemanticFieldType.DECIMAL, m2.type());
@@ -156,7 +156,7 @@ class SemanticContractJsonTest {
     @Test
     void roundTrip_SemanticDimension_filterableAndGroupable() throws Exception {
         var d  = new SemanticDimension("book", "book", SemanticFieldType.STRING,
-                "Trading Book", true, false);
+                "Trading Book", true, false, null);
         var d2 = mapper.readValue(mapper.writeValueAsString(d), SemanticDimension.class);
         assertEquals(d, d2);
         assertTrue(d2.filterable());
@@ -166,7 +166,7 @@ class SemanticContractJsonTest {
     @Test
     void roundTrip_allSemanticFieldTypes() throws Exception {
         for (var type : SemanticFieldType.values()) {
-            var m  = new SemanticMeasure("m", "l", "EXPR", type, "");
+            var m  = new SemanticMeasure("m", "l", "EXPR", type, "", null);
             var m2 = mapper.readValue(mapper.writeValueAsString(m), SemanticMeasure.class);
             assertEquals(type, m2.type());
         }
@@ -325,7 +325,7 @@ class SemanticContractJsonTest {
                 mapper.writeValueAsString(contract), SemanticContract.class);
         assertThrows(UnsupportedOperationException.class,
                 () -> restored.measures().add(
-                        new SemanticMeasure("x", "x", "EXPR", SemanticFieldType.INTEGER, "")));
+                        new SemanticMeasure("x", "x", "EXPR", SemanticFieldType.INTEGER, "", null)));
     }
 
     @Test

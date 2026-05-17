@@ -309,10 +309,11 @@ class ContractRegistryPopulatorTest {
                 name, new SemanticContractVersion("1.0.0"), "",
                 new SemanticEntity(name, "",
                         new SemanticEndpoint("c", "s", "t"), List.of()),
-                List.of(new SemanticMeasure("m", "M", "SUM(m)", SemanticFieldType.DECIMAL, "")),
-                List.of(new SemanticDimension("d", "d", SemanticFieldType.STRING, "D", true, true)),
+                List.of(new SemanticMeasure("m", "M", "SUM(m)", SemanticFieldType.DECIMAL, "", null)),
+                List.of(new SemanticDimension("d", "d", SemanticFieldType.STRING, "D", true, true, null)),
                 SemanticAccessPolicy.unrestricted(),
-                SemanticCachePolicy.none());
+                SemanticCachePolicy.none(),
+                null);
     }
 
     private static SemanticContract contractNoMeasures(String name) {
@@ -323,7 +324,8 @@ class ContractRegistryPopulatorTest {
                 List.of(),   // no measures → CONTRACT_NO_MEASURES warning
                 List.of(),
                 SemanticAccessPolicy.unrestricted(),
-                SemanticCachePolicy.none());
+                SemanticCachePolicy.none(),
+                null);
     }
 
     private static SemanticContract contractWithDatasetVersionCache(String name) {
@@ -333,7 +335,8 @@ class ContractRegistryPopulatorTest {
                         new SemanticEndpoint("c", "s", "t"), List.of()),
                 List.of(), List.of(),
                 SemanticAccessPolicy.unrestricted(),
-                new SemanticCachePolicy(SemanticCacheStrategy.DATASET_VERSION, null, List.of()));
+                new SemanticCachePolicy(SemanticCacheStrategy.DATASET_VERSION, null, List.of()),
+                null);
     }
 
     private Path copyFixture(Path tmp, String fixtureResource, String destName)

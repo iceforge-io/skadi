@@ -1,5 +1,7 @@
 package org.iceforge.skadi.semantic.contract;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+
 import java.util.Objects;
 
 /**
@@ -16,24 +18,27 @@ import java.util.Objects;
  * <pre>{@code
  * var book = new SemanticDimension(
  *     "book", "book", SemanticFieldType.STRING,
- *     "Trading Book", true, true);
+ *     "Trading Book", true, true, null);
  * }</pre>
  */
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public record SemanticDimension(
         String name,
         String column,
         SemanticFieldType type,
         String label,
         boolean filterable,
-        boolean groupable) {
+        boolean groupable,
+        SemanticDimensionExplanation explanation) {
 
     /**
-     * @param name       unique dimension identifier within the contract; must not be null or blank
-     * @param column     physical column name in the backing table; must not be null or blank
-     * @param type       data type of the column; must not be null
-     * @param label      display label for UI and reports; must not be null
-     * @param filterable whether callers may use this dimension as a filter
-     * @param groupable  whether callers may group by this dimension
+     * @param name        unique dimension identifier within the contract; must not be null or blank
+     * @param column      physical column name in the backing table; must not be null or blank
+     * @param type        data type of the column; must not be null
+     * @param label       display label for UI and reports; must not be null
+     * @param filterable  whether callers may use this dimension as a filter
+     * @param groupable   whether callers may group by this dimension
+     * @param explanation optional business-facing explanation metadata; may be null
      */
     public SemanticDimension {
         Objects.requireNonNull(name, "name must not be null");

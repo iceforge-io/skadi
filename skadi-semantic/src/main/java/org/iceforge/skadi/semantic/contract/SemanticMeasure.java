@@ -1,5 +1,7 @@
 package org.iceforge.skadi.semantic.contract;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+
 import java.util.Objects;
 
 /**
@@ -18,15 +20,17 @@ import java.util.Objects;
  * <pre>{@code
  * var pnl = new SemanticMeasure(
  *     "pnl", "Total PnL", "SUM(pnl)", SemanticFieldType.DECIMAL,
- *     "Sum of daily profit and loss");
+ *     "Sum of daily profit and loss", null);
  * }</pre>
  */
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public record SemanticMeasure(
         String name,
         String label,
         String expression,
         SemanticFieldType type,
-        String description) {
+        String description,
+        SemanticMeasureExplanation explanation) {
 
     /**
      * @param name        unique measure identifier within the contract; must not be null or blank
@@ -34,6 +38,7 @@ public record SemanticMeasure(
      * @param expression  SQL aggregation fragment, e.g. {@code "SUM(pnl)"}; must not be null or blank
      * @param type        result data type; must not be null
      * @param description human-readable description; may be empty but not null
+     * @param explanation optional business-facing explanation metadata; may be null
      */
     public SemanticMeasure {
         Objects.requireNonNull(name, "name must not be null");

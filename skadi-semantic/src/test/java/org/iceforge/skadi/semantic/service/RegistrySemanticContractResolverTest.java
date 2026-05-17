@@ -241,9 +241,10 @@ class RegistrySemanticContractResolverTest {
                 name, new SemanticContractVersion("1.0.0"), "",
                 new SemanticEntity(name, "",
                         new SemanticEndpoint("c", "s", "t"), List.of()),
-                List.of(new SemanticMeasure("m", "M", "SUM(m)", SemanticFieldType.DECIMAL, "")),
-                List.of(new SemanticDimension("d", "d", SemanticFieldType.STRING, "D", true, true)),
+                List.of(new SemanticMeasure("m", "M", "SUM(m)", SemanticFieldType.DECIMAL, "", null)),
+                List.of(new SemanticDimension("d", "d", SemanticFieldType.STRING, "D", true, true, null)),
                 SemanticAccessPolicy.unrestricted(),
-                SemanticCachePolicy.none());
+                SemanticCachePolicy.none(),
+                null);
     }
 }

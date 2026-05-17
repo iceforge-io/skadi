@@ -1,5 +1,7 @@
 package org.iceforge.skadi.semantic.contract;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+
 import java.util.List;
 import java.util.Objects;
 
@@ -40,14 +42,16 @@ import java.util.Objects;
  *     new SemanticEntity("mxl_risk", "...",
  *         new SemanticEndpoint("main", "risk", "gold_risk"), List.of()),
  *     List.of(new SemanticMeasure("pnl", "Total PnL", "SUM(pnl)",
- *                                 SemanticFieldType.DECIMAL, "")),
+ *                                 SemanticFieldType.DECIMAL, "", null)),
  *     List.of(new SemanticDimension("book", "book",
  *                                   SemanticFieldType.STRING, "Trading Book",
- *                                   true, true)),
+ *                                   true, true, null)),
  *     SemanticAccessPolicy.unrestricted(),
- *     SemanticCachePolicy.ttl(300L));
+ *     SemanticCachePolicy.ttl(300L),
+ *     null);
  * }</pre>
  */
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public record SemanticContract(
         String name,
         SemanticContractVersion version,
@@ -56,7 +60,8 @@ public record SemanticContract(
         List<SemanticMeasure> measures,
         List<SemanticDimension> dimensions,
         SemanticAccessPolicy accessPolicy,
-        SemanticCachePolicy cachePolicy) {
+        SemanticCachePolicy cachePolicy,
+        SemanticContractExplanation explanation) {
 
     /**
      * @param name         unique contract identifier used in semantic queries
@@ -72,6 +77,8 @@ public record SemanticContract(
      *                     use {@link SemanticAccessPolicy#unrestricted()} for no restrictions
      * @param cachePolicy  declared cache hint; must not be null;
      *                     use {@link SemanticCachePolicy#none()} to opt out of caching
+     * @param explanation  optional business-facing explanation metadata for buddy chat
+     *                     interrogation; may be null
      */
     public SemanticContract {
         Objects.requireNonNull(name, "name must not be null");
