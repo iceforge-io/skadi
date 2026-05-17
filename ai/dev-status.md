@@ -1,9 +1,9 @@
 # Skadi — Development Status
 
 > Updated: 2026-05-17
-> Branch: `main`
-> Last commit: `2f53fa4` — docs: add buddy chat semantic model interrogation decision (ADR-012)
-> Build: ✅ 494 tests passing (`mvn verify -pl skadi-semantic,skadi-server -am`; gateway test counts unchanged)
+> Branch: `feature/97-lane-e-semantic-execution-activation`
+> Last commit: `42e4a4a` — Lane E semantic execution activation — skadi#97
+> Build: ✅ 710 tests passing (`mvn verify -pl skadi-semantic,skadi-server -am`; gateway test counts unchanged)
 
 ---
 
@@ -326,7 +326,56 @@ All D-lane issues closed. Committed directly to `main`.
 
 ---
 
-## Architecture Evolution (Lane C+/D+)
+## Lane E — Semantic Execution Activation (In Progress)
+
+| Story | Description | Status | Commit | Issue |
+|---|---|---|---|---|
+| E1 | Semantic execution activation (`SkadiServerQueryExecutionService`) | ✅ | `42e4a4a` | #97 |
+
+---
+
+## Lane E Completed — E1 Summary
+
+**Issue:** #97 | **PR:** #102 | **Commit:** `42e4a4a`
+
+**Lane E E1 scope:** Activate the semantic execution path so semantic requests delegate to `skadi-server` via HTTP. `skadi-sql-gateway` intentionally untouched — SQL gateway convergence is a separate future question tracked in DQR-004.
+
+### What was built in E1
+
+| Capability | Key Components | Module |
+|---|---|---|
+| HTTP delegation | `SkadiServerQueryExecutionService` — replaces skeleton; POSTs to `POST /api/v1/queries`; handles cache-hit (200 SUCCEEDED) and async (202 ACCEPTED + status poll) paths | `skadi-semantic` |
+| Execution config | `SemanticExecutionProperties` (`skadi.semantic.execution.server-url`, `datasource-id`) | `skadi-server` |
+| Bean wiring | `queryExecutionService` bean added to `SemanticContractConfiguration` | `skadi-server` |
+| Tests | `SemanticExecutionActivationTest` (5 tests) + updated `ServiceBoundaryTest` (4 delegation tests) + updated `ContractCompositionTest` | `skadi-server`, `skadi-semantic` |
+
+### Key design decisions
+
+| Decision | Outcome |
+|---|---|
+| Execution delegation topology | DQR-002 resolved: Option 4 (partial convergence) — semantic path delegates to `skadi-server`; SQL gateway direct path unchanged |
+| SQL gateway convergence | Explicitly deferred; tracked as future scope in DQR-004 |
+| `skadi-sql-gateway` | **Untouched** — no changes to gateway module in Lane E |
+| Test approach | Hand-rolled JDK `HttpServer` fakes — no Mockito, no Databricks, no Spring context |
+
+### Test count progression
+
+| Milestone | skadi-semantic | skadi-server | Total |
+|---|---|---|---|
+| D7 complete (baseline) | 378 | 116 | 494 |
+| E1 complete | 524 | 186 | 710 |
+
+### Lane E non-goals (enforced throughout)
+
+- No `skadi-sql-gateway` changes
+- No SQL gateway traffic routed through `skadi-server`
+- No convergence of gateway and server execution ownership
+- No pgwire/mysql semantic awareness
+- No full gateway convergence (deferred to DQR-004)
+
+---
+
+## Architecture Evolution (Lane C+/D+/E+)
 
 Architecture docs, ADRs, and DQRs:
 
@@ -341,10 +390,11 @@ Architecture docs, ADRs, and DQRs:
 - `ai/adr/ADR-011-contract-definition-format-json-canonical.md` — JSON canonical for Lane D (Accepted)
 - `ai/adr/ADR-012-buddy-chat-semantic-model-interrogation.md` — buddy chat must interrogate semantic model for query execution and explanation; must not maintain independent business definitions (Accepted)
 - `ai/dqr/DQR-001-contract-definition-format.md` — **Resolved** (JSON canonical; YAML deferred)
-- `ai/dqr/DQR-002-semantic-execution-delegation.md` — execution topology (Open)
+- `ai/dqr/DQR-002-semantic-execution-delegation.md` — **Resolved** (Option 4 — partial convergence; issue #97)
 - `ai/dqr/DQR-003-lineage-market-risk-brain-seams.md` — lineage/MRB integration seams (Open)
+- `ai/dqr/DQR-004-sql-gateway-convergence.md` — full SQL gateway / semantic execution convergence (Open; future scope)
 
-Lane D is complete. Contracts are loadable, validateable, resolvable, and inspectable via a read-only HTTP endpoint. The semantic execution path (`SkadiServerQueryExecutionService`) remains a skeleton pending DQR-002 resolution. See `ai/lane-d/lane-d-runbook.md` for activation guidance and next-lane recommendations.
+Lane D is complete. Contracts are loadable, validateable, resolvable, and inspectable via a read-only HTTP endpoint. Lane E E1 activated `SkadiServerQueryExecutionService` — the semantic execution path now delegates to `skadi-server` via HTTP (DQR-002 resolved). SQL gateway convergence remains a future design question; see DQR-004.
 
 ---
 
