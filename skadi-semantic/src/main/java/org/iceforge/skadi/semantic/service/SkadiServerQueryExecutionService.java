@@ -156,14 +156,14 @@ public final class SkadiServerQueryExecutionService implements QueryExecutionSer
 
         if (!circuitBreaker.isCallAllowed()) {
             SemanticExecutionHealthStatus cbStatus = circuitBreaker.snapshot().status();
+            SemanticExecutionFailure failure = SemanticExecutionFailure.fromHealthStatus(cbStatus);
             if (cbStatus == SemanticExecutionHealthStatus.DISABLED) {
                 log.debug("semantic-exec: disabled principal={}", principal);
             } else {
                 log.warn("semantic-exec: circuit-open principal={}", principal);
             }
             metrics.recordFailure();
-            return QueryExecutionResult.failed(request.context(), identity,
-                    "semantic execution unavailable: " + cbStatus.name().toLowerCase().replace('_', ' '));
+            return QueryExecutionResult.failed(request.context(), identity, failure.safeMessage());
         }
 
         try {
@@ -193,26 +193,30 @@ public final class SkadiServerQueryExecutionService implements QueryExecutionSer
                 return pollUntilDone(request.context(), identity, queryId);
             }
 
-            String msg = "unexpected submit response: HTTP " + response.statusCode() + " state=" + state;
             log.warn("semantic-exec: unexpected-submit-response http={} state={} principal={}",
                     response.statusCode(), state, principal);
-            circuitBreaker.recordFailure(msg, SemanticExecutionHealthStatus.UNAVAILABLE);
+            circuitBreaker.recordFailure(SemanticExecutionFailure.UNAVAILABLE.safeMessage(),
+                    SemanticExecutionHealthStatus.UNAVAILABLE);
             metrics.recordFailure();
-            return QueryExecutionResult.failed(request.context(), identity, msg);
+            return QueryExecutionResult.failed(request.context(), identity,
+                    SemanticExecutionFailure.UNAVAILABLE.safeMessage());
 
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            String msg = "interrupted while waiting for query: " + e.getMessage();
             log.warn("semantic-exec: interrupted principal={}", principal);
-            circuitBreaker.recordFailure(msg, SemanticExecutionHealthStatus.TIMEOUT);
+            circuitBreaker.recordFailure(SemanticExecutionFailure.TIMEOUT.safeMessage(),
+                    SemanticExecutionHealthStatus.TIMEOUT);
             metrics.recordError();
-            return QueryExecutionResult.failed(request.context(), identity, msg);
+            return QueryExecutionResult.failed(request.context(), identity,
+                    SemanticExecutionFailure.TIMEOUT.safeMessage());
         } catch (Exception e) {
-            String msg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
-            log.error("semantic-exec: error principal={} msg={}", principal, msg, e);
-            circuitBreaker.recordFailure(msg, SemanticExecutionHealthStatus.UNAVAILABLE);
+            // Log the raw exception for operator diagnosis; never propagate it to callers.
+            log.error("semantic-exec: error principal={}", principal, e);
+            circuitBreaker.recordFailure(SemanticExecutionFailure.UNEXPECTED.safeMessage(),
+                    SemanticExecutionHealthStatus.UNAVAILABLE);
             metrics.recordError();
-            return QueryExecutionResult.failed(request.context(), identity, msg);
+            return QueryExecutionResult.failed(request.context(), identity,
+                    SemanticExecutionFailure.UNEXPECTED.safeMessage());
         }
     }
 
@@ -256,26 +260,30 @@ public final class SkadiServerQueryExecutionService implements QueryExecutionSer
                 return QueryExecutionResult.completed(ctx, identity, CacheEntryState.ABSENT);
             }
             if ("FAILED".equals(state)) {
-                String msg = statusNode.path("message").asText("query failed on server");
-                log.warn("semantic-exec: failed queryId={} msg={}", queryId, msg);
-                circuitBreaker.recordFailure(msg, SemanticExecutionHealthStatus.FAILED);
+                // Log raw server message for operator diagnosis; return stable safe message to caller.
+                String rawMsg = statusNode.path("message").asText("query failed on server");
+                log.warn("semantic-exec: failed queryId={} msg={}", queryId, rawMsg);
+                circuitBreaker.recordFailure(SemanticExecutionFailure.REMOTE_ERROR.safeMessage(),
+                        SemanticExecutionHealthStatus.FAILED);
                 metrics.recordFailure();
-                return QueryExecutionResult.failed(ctx, identity, msg);
+                return QueryExecutionResult.failed(ctx, identity,
+                        SemanticExecutionFailure.REMOTE_ERROR.safeMessage());
             }
             if ("CANCELED".equals(state)) {
-                String msg = "query was canceled on server";
                 log.warn("semantic-exec: canceled queryId={}", queryId);
-                circuitBreaker.recordFailure(msg, SemanticExecutionHealthStatus.FAILED);
+                circuitBreaker.recordFailure(SemanticExecutionFailure.REMOTE_ERROR.safeMessage(),
+                        SemanticExecutionHealthStatus.FAILED);
                 metrics.recordFailure();
-                return QueryExecutionResult.failed(ctx, identity, msg);
+                return QueryExecutionResult.failed(ctx, identity,
+                        SemanticExecutionFailure.REMOTE_ERROR.safeMessage());
             }
             // QUEUED or RUNNING — keep polling
         }
 
-        String msg = "query timed out after " + maxWaitMs + "ms";
         log.warn("semantic-exec: timeout queryId={} maxWaitMs={}", queryId, maxWaitMs);
-        circuitBreaker.recordFailure(msg, SemanticExecutionHealthStatus.TIMEOUT);
+        circuitBreaker.recordFailure(SemanticExecutionFailure.TIMEOUT.safeMessage(),
+                SemanticExecutionHealthStatus.TIMEOUT);
         metrics.recordTimeout();
-        return QueryExecutionResult.failed(ctx, identity, msg);
+        return QueryExecutionResult.failed(ctx, identity, SemanticExecutionFailure.TIMEOUT.safeMessage());
     }
 }
