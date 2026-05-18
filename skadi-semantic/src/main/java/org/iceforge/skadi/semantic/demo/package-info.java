@@ -11,6 +11,10 @@
  *   <li>{@link org.iceforge.skadi.semantic.demo.DemoSemanticIntentAdapter} — interpreter interface</li>
  *   <li>{@link org.iceforge.skadi.semantic.demo.RuleBasedDemoSemanticIntentAdapter} — deterministic rule-based implementation</li>
  *   <li>{@link org.iceforge.skadi.semantic.demo.DemoSemanticQueryInterpretation} — interpreter output</li>
+ *   <li>{@link org.iceforge.skadi.semantic.demo.DemoSemanticSqlRenderer} — SQL renderer interface</li>
+ *   <li>{@link org.iceforge.skadi.semantic.demo.WhitelistedDemoSemanticSqlRenderer} — allowlist-gated SQL renderer</li>
+ *   <li>{@link org.iceforge.skadi.semantic.demo.DemoSemanticRenderedSql} — rendered SQL with bind params</li>
+ *   <li>{@link org.iceforge.skadi.semantic.demo.DemoViewConfig} — operator-controlled view name config</li>
  *   <li>{@link org.iceforge.skadi.semantic.demo.DemoSemanticQueryExecutionResponse} — full execution response</li>
  * </ul>
  */
