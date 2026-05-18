@@ -1,0 +1,126 @@
+{
+  "name": "risk_sensitivity_exposure_grid",
+  "version": {
+    "value": "1.0.0"
+  },
+  "description": "Market-risk sensitivity exposure grid — governed grouped daily Greek exposure across risk dimensions. Supports grid-style querying: group by desk, risk_class, risk_factor, currency, or legal_entity. Demo spike fixture for issue #122 / epic #121.",
+  "entity": {
+    "name": "risk_sensitivity_exposure_grid",
+    "description": "Market-risk sensitivity exposure grid entity. Grain: one row per (cob_date, legal_entity, business_unit, desk, risk_class, risk_factor, currency, product). Output shape: tabular grid — each row is a sensitivity exposure cell. Demo placeholder — source view key: skadi.semantic.demo.exposure-view. TODO (follow-up story): wire endpoint to a config-driven source view key rather than hardcoded table coordinates.",
+    "endpoint": {
+      "catalog": "demo",
+      "schema": "market_risk",
+      "table": "sensitivity_exposure_v"
+    },
+    "ruleRefs": []
+  },
+  "measures": [
+    {
+      "name": "delta_exposure",
+      "label": "Delta Exposure",
+      "expression": "SUM(delta_exposure)",
+      "type": "DECIMAL",
+      "description": "Net delta sensitivity exposure aggregated across positions. Measures first-order sensitivity of portfolio value to changes in the underlying risk factor. Intended for risk monitoring and regulatory reporting. Aggregation: SUM."
+    },
+    {
+      "name": "dv01",
+      "label": "DV01",
+      "expression": "SUM(dv01)",
+      "type": "DECIMAL",
+      "description": "Dollar value of a basis point — interest rate sensitivity measure. Quantifies the change in position value for a one-basis-point parallel shift in the yield curve. Applicable to interest-rate-sensitive positions. Aggregation: SUM."
+    },
+    {
+      "name": "vega",
+      "label": "Vega",
+      "expression": "SUM(vega)",
+      "type": "DECIMAL",
+      "description": "Sensitivity of option portfolio value to changes in implied volatility. Applicable to positions with optionality. Caveat: vega is meaningful only where volatility surface coverage exists for the risk_factor. Aggregation: SUM."
+    },
+    {
+      "name": "gamma",
+      "label": "Gamma",
+      "expression": "SUM(gamma)",
+      "type": "DECIMAL",
+      "description": "Second-order delta sensitivity — rate of change of delta with respect to the underlying price. Applicable to non-linear positions. Caveat: gamma aggregation is directional and may obscure offsetting exposures. Aggregation: SUM."
+    }
+  ],
+  "dimensions": [
+    {
+      "name": "cob_date",
+      "column": "cob_date",
+      "type": "DATE",
+      "label": "Close of Business Date",
+      "filterable": true,
+      "groupable": true
+    },
+    {
+      "name": "legal_entity",
+      "column": "legal_entity",
+      "type": "STRING",
+      "label": "Legal Entity",
+      "filterable": true,
+      "groupable": true
+    },
+    {
+      "name": "business_unit",
+      "column": "business_unit",
+      "type": "STRING",
+      "label": "Business Unit",
+      "filterable": true,
+      "groupable": true
+    },
+    {
+      "name": "desk",
+      "column": "desk",
+      "type": "STRING",
+      "label": "Trading Desk",
+      "filterable": true,
+      "groupable": true
+    },
+    {
+      "name": "risk_class",
+      "column": "risk_class",
+      "type": "STRING",
+      "label": "Risk Class",
+      "filterable": true,
+      "groupable": true
+    },
+    {
+      "name": "risk_factor",
+      "column": "risk_factor",
+      "type": "STRING",
+      "label": "Risk Factor",
+      "filterable": true,
+      "groupable": true
+    },
+    {
+      "name": "currency",
+      "column": "currency",
+      "type": "STRING",
+      "label": "Currency",
+      "filterable": true,
+      "groupable": true
+    },
+    {
+      "name": "product",
+      "column": "product",
+      "type": "STRING",
+      "label": "Product",
+      "filterable": true,
+      "groupable": false
+    }
+  ],
+  "accessPolicy": {
+    "allowedRoles": [
+      {"name": "risk_analyst"},
+      {"name": "risk_viewer"}
+    ],
+    "allowedPrincipals": [],
+    "ruleRefs": []
+  },
+  "cachePolicy": {
+    "strategy": "TTL",
+    "ttlSeconds": 3600,
+    "ruleRefs": []
+  }
+}
