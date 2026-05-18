@@ -11,6 +11,8 @@ import org.iceforge.skadi.semantic.demo.DemoSemanticQueryInterpretation;
 import org.iceforge.skadi.semantic.demo.DemoSemanticQueryRequest;
 import org.iceforge.skadi.semantic.demo.DemoSemanticRenderedSql;
 import org.iceforge.skadi.semantic.demo.DemoSemanticResultColumn;
+import org.iceforge.skadi.semantic.demo.DemoSemanticSqlMaterializationException;
+import org.iceforge.skadi.semantic.demo.DemoSemanticSqlMaterializer;
 import org.iceforge.skadi.semantic.demo.DemoSemanticSqlRenderException;
 import org.iceforge.skadi.semantic.demo.DemoSemanticSqlRenderer;
 import org.iceforge.skadi.semantic.demo.DemoViewConfig;
@@ -47,7 +49,11 @@ import java.util.Objects;
  *   <li>Render SQL via {@link DemoSemanticSqlRenderer} (which enforces its own allowlists).
  *       A {@link DemoSemanticSqlRenderException} is mapped to a safe denied response
  *       without calling the execution service.</li>
- *   <li>Execute the rendered SQL through the injected {@link QueryExecutionService}.</li>
+ *   <li>Materialize the rendered SQL: replace all {@code :param} placeholders with safe
+ *       SQL literals via {@link DemoSemanticSqlMaterializer}. This is necessary because
+ *       {@link org.iceforge.skadi.semantic.service.QueryExecutionRequest#sqlOnly} carries
+ *       only SQL text; there is no named-parameter carrier in the current execution seam.</li>
+ *   <li>Execute the materialized SQL through the injected {@link QueryExecutionService}.</li>
  *   <li>Map the {@link QueryExecutionResult} to a {@link DemoSemanticQueryExecutionResponse}.</li>
  * </ol>
  *
@@ -130,6 +136,18 @@ public final class DemoSemanticQueryExecutionFacade {
             rendered = sqlRenderer.render(interpretation);
         } catch (DemoSemanticSqlRenderException ex) {
             return renderFailureResponse(request.text(), interpretation, ex.getMessage());
+        }
+
+        // Step 3.5: Materialize :param placeholders into safe SQL literals.
+        // QueryExecutionRequest.sqlOnly() carries only SQL text; there is no named-parameter
+        // carrier in the current execution seam. The materializer applies strict quoting so
+        // that user-supplied filter values cannot escape the string context.
+        String materializedSql;
+        try {
+            materializedSql = DemoSemanticSqlMaterializer.materialize(rendered);
+        } catch (DemoSemanticSqlMaterializationException ex) {
+            return renderFailureResponse(request.text(), interpretation,
+                    "SQL materialization failed: " + ex.getMessage());
         }
 
         // Step 4: Execute via the existing semantic execution seam

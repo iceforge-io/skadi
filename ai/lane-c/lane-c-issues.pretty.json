@@ -471,9 +471,9 @@
         ],
         "milestone": null,
         "number": 46,
-        "state": "OPEN",
+        "state": "CLOSED",
         "title": "Lane C: C8 \u2014 Update dev-status and Lane C runbook",
-        "updatedAt": "2026-05-14T13:34:02Z",
+        "updatedAt": "2026-05-14T23:53:30Z",
         "url": "https://github.com/iceforge-io/skadi/issues/46"
     },
     {
@@ -502,9 +502,9 @@
         ],
         "milestone": null,
         "number": 45,
-        "state": "OPEN",
+        "state": "CLOSED",
         "title": "Lane C: C7 \u2014 Add contract-focused tests",
-        "updatedAt": "2026-05-14T13:34:00Z",
+        "updatedAt": "2026-05-14T23:43:06Z",
         "url": "https://github.com/iceforge-io/skadi/issues/45"
     },
     {
@@ -570,9 +570,9 @@
         ],
         "milestone": null,
         "number": 43,
-        "state": "OPEN",
+        "state": "CLOSED",
         "title": "Lane C: C5 \u2014 Define service interfaces for semantic-aware execution",
-        "updatedAt": "2026-05-14T13:33:58Z",
+        "updatedAt": "2026-05-14T23:35:13Z",
         "url": "https://github.com/iceforge-io/skadi/issues/43"
     },
     {
@@ -607,9 +607,9 @@
         ],
         "milestone": null,
         "number": 42,
-        "state": "OPEN",
+        "state": "CLOSED",
         "title": "Lane C: C4 \u2014 Define cache contract boundary",
-        "updatedAt": "2026-05-14T13:33:56Z",
+        "updatedAt": "2026-05-14T23:24:38Z",
         "url": "https://github.com/iceforge-io/skadi/issues/42"
     },
     {
@@ -638,9 +638,9 @@
         ],
         "milestone": null,
         "number": 41,
-        "state": "OPEN",
+        "state": "CLOSED",
         "title": "Lane C: C3 \u2014 Define query contract and output-shape metadata",
-        "updatedAt": "2026-05-14T13:33:55Z",
+        "updatedAt": "2026-05-14T23:17:21Z",
         "url": "https://github.com/iceforge-io/skadi/issues/41"
     },
     {
@@ -737,9 +737,9 @@
         ],
         "milestone": null,
         "number": 38,
-        "state": "OPEN",
+        "state": "CLOSED",
         "title": "Skadi Platform: Lane C \u2014 Contracts, Skeletons, and Architectural Boundaries",
-        "updatedAt": "2026-05-13T12:01:45Z",
+        "updatedAt": "2026-05-14T23:54:53Z",
         "url": "https://github.com/iceforge-io/skadi/issues/38"
     },
     {
