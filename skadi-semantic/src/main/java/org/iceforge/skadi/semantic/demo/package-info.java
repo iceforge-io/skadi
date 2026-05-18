@@ -14,6 +14,7 @@
  *   <li>{@link org.iceforge.skadi.semantic.demo.DemoSemanticSqlRenderer} — SQL renderer interface</li>
  *   <li>{@link org.iceforge.skadi.semantic.demo.WhitelistedDemoSemanticSqlRenderer} — allowlist-gated SQL renderer</li>
  *   <li>{@link org.iceforge.skadi.semantic.demo.DemoSemanticRenderedSql} — rendered SQL with bind params</li>
+ *   <li>{@link org.iceforge.skadi.semantic.demo.DemoSemanticSqlMaterializer} — substitutes :params with safe literals for SQL-only execution</li>
  *   <li>{@link org.iceforge.skadi.semantic.demo.DemoViewConfig} — operator-controlled view name config</li>
  *   <li>{@link org.iceforge.skadi.semantic.demo.DemoSemanticQueryExecutionResponse} — full execution response</li>
  * </ul>
