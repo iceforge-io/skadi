@@ -97,6 +97,12 @@ for unit tests only. It must not be used in production code.
 ## JSON testing conventions (C2.5)
 
 - Test fixture: `src/test/resources/fixtures/sample-contract.json`
+- Demo spike fixtures (issue #122 / epic #121):
+  - `src/test/resources/fixtures/demo-contract-risk-sensitivity-exposure-grid.json`
+  - `src/test/resources/fixtures/demo-contract-risk-sensitivity-historical-timeseries.json`
+  - These are governed market-risk sensitivity contracts used by the plain-English demo spike.
+    They are test-only fixtures — no production table names, no query execution, no SQL gateway changes.
+    Source view config key wiring is a follow-up TODO documented in each fixture's entity description.
 - `jackson-databind` is a **test-scope** dependency only (version managed by Spring Boot BOM).
 - The `ObjectMapper` in tests is configured with `AUTO_DETECT_IS_GETTERS` disabled.
   Jackson 2.14+ deserialises records via `RecordComponent.getName()` — no `@JsonProperty`

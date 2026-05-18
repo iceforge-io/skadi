@@ -1,0 +1,126 @@
+{
+  "name": "risk_sensitivity_historical_timeseries",
+  "version": {
+    "value": "1.0.0"
+  },
+  "description": "Market-risk sensitivity historical time-series — governed daily Greek evolution across risk dimensions. Supports date/time-series grouped historical analysis: trend by cob_date grouped by desk or risk_class. Demo spike fixture for issue #122 / epic #121.",
+  "entity": {
+    "name": "risk_sensitivity_historical_timeseries",
+    "description": "Market-risk sensitivity historical time-series entity. Grain: one row per (cob_date, legal_entity, business_unit, desk, risk_class, risk_factor, currency). Output shape: time-series — ordered by cob_date, one sensitivity observation per time point and grouping key. Demo placeholder — source view key: skadi.semantic.demo.history-view. TODO (follow-up story): wire endpoint to a config-driven source view key rather than hardcoded table coordinates.",
+    "endpoint": {
+      "catalog": "demo",
+      "schema": "market_risk",
+      "table": "sensitivity_history_v"
+    },
+    "ruleRefs": []
+  },
+  "measures": [
+    {
+      "name": "delta_exposure",
+      "label": "Delta Exposure",
+      "expression": "SUM(delta_exposure)",
+      "type": "DECIMAL",
+      "description": "Net delta sensitivity exposure aggregated across positions for the given time point. Measures first-order sensitivity of portfolio value to changes in the underlying risk factor. Intended for historical risk trend analysis. Aggregation: SUM."
+    },
+    {
+      "name": "dv01",
+      "label": "DV01",
+      "expression": "SUM(dv01)",
+      "type": "DECIMAL",
+      "description": "Dollar value of a basis point — historical interest rate sensitivity. Quantifies the change in position value for a one-basis-point parallel shift at each historical COB date. Aggregation: SUM."
+    },
+    {
+      "name": "vega",
+      "label": "Vega",
+      "expression": "SUM(vega)",
+      "type": "DECIMAL",
+      "description": "Historical sensitivity of option portfolio value to changes in implied volatility. Tracks vega evolution over time. Caveat: applicable only to positions with optionality; zero elsewhere. Aggregation: SUM."
+    },
+    {
+      "name": "gamma",
+      "label": "Gamma",
+      "expression": "SUM(gamma)",
+      "type": "DECIMAL",
+      "description": "Historical second-order delta sensitivity over time. Tracks gamma evolution across COB dates. Caveat: gamma aggregation is directional and may obscure offsetting non-linear exposures. Aggregation: SUM."
+    }
+  ],
+  "dimensions": [
+    {
+      "name": "cob_date",
+      "column": "cob_date",
+      "type": "DATE",
+      "label": "Close of Business Date",
+      "filterable": true,
+      "groupable": true
+    },
+    {
+      "name": "legal_entity",
+      "column": "legal_entity",
+      "type": "STRING",
+      "label": "Legal Entity",
+      "filterable": true,
+      "groupable": true
+    },
+    {
+      "name": "business_unit",
+      "column": "business_unit",
+      "type": "STRING",
+      "label": "Business Unit",
+      "filterable": true,
+      "groupable": false
+    },
+    {
+      "name": "desk",
+      "column": "desk",
+      "type": "STRING",
+      "label": "Trading Desk",
+      "filterable": true,
+      "groupable": true
+    },
+    {
+      "name": "risk_class",
+      "column": "risk_class",
+      "type": "STRING",
+      "label": "Risk Class",
+      "filterable": true,
+      "groupable": true
+    },
+    {
+      "name": "risk_factor",
+      "column": "risk_factor",
+      "type": "STRING",
+      "label": "Risk Factor",
+      "filterable": true,
+      "groupable": false
+    },
+    {
+      "name": "currency",
+      "column": "currency",
+      "type": "STRING",
+      "label": "Currency",
+      "filterable": true,
+      "groupable": false
+    },
+    {
+      "name": "product",
+      "column": "product",
+      "type": "STRING",
+      "label": "Product",
+      "filterable": false,
+      "groupable": false
+    }
+  ],
+  "accessPolicy": {
+    "allowedRoles": [
+      {"name": "risk_analyst"},
+      {"name": "risk_viewer"}
+    ],
+    "allowedPrincipals": [],
+    "ruleRefs": []
+  },
+  "cachePolicy": {
+    "strategy": "TTL",
+    "ttlSeconds": 3600,
+    "ruleRefs": []
+  }
+}
