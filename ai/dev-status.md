@@ -1,9 +1,9 @@
 # Skadi — Development Status
 
 > Updated: 2026-05-18
-> Branch: `feature/117-semantic-execution-failure-classification`
-> Last commit: pending — Lane F F4: semantic execution failure classification — skadi#117
-> Build: ✅ 805 tests passing (skadi-semantic: 574, skadi-server: 231; gateway unchanged)
+> Branch: `feature/119-semantic-execution-failure-response-contracts`
+> Last commit: pending — Lane F F5: semantic execution failure response contracts — skadi#119
+> Build: ✅ 823 tests passing (skadi-semantic: 574, skadi-server: 249; gateway unchanged)
 
 ---
 
@@ -362,8 +362,41 @@ Tests: `ScreenContextModelTest` (35), `Adr012FitnessTest` (21), `SemanticRequest
 | F2 | Semantic execution readiness endpoint and operator runbook | ✅ | #112 |
 | F3 | Semantic execution resilience integration tests | ✅ | #114 |
 | F4 | Semantic execution failure classification and operator-safe error responses | ✅ | #117 |
+| F5 | Semantic execution failure response contract tests and API-level error shape guardrails | ✅ | #119 |
 
 **Epic:** #109 — harden the Lane E semantic execution delegation path before buddy-chat, dashboard explanation, or gateway convergence depend on it.
+
+---
+
+## Lane F Completed — F5 Summary
+
+**Issue:** #119 | **Branch:** `feature/119-semantic-execution-failure-response-contracts`
+
+**Lane F F5 scope:** Contract tests locking the observable diagnostics shape after each failure type. F4 proved `QueryExecutionResult.errorMessage()` is safe; F5 proves `GET /api/semantic/v1/execution/status` exposes the safe reason and nothing else.
+
+### What was built in F5
+
+| Contract tested | Assertions |
+|---|---|
+| DISABLED diagnostics | `active=false`, `status=DISABLED`, `readiness=DISABLED`, no `lastFailureReason` |
+| UNAVAILABLE diagnostics | safe `lastFailureReason`, `status=UNAVAILABLE`, `readiness=UNAVAILABLE` |
+| TIMEOUT diagnostics | safe `lastFailureReason`, `status=TIMEOUT`, `readiness=UNAVAILABLE` |
+| REMOTE_ERROR diagnostics | safe `lastFailureReason`, NOT raw server content, `status=FAILED` |
+| UNEXPECTED diagnostics | safe `lastFailureReason`, `status=UNAVAILABLE` |
+| CIRCUIT_OPEN diagnostics | `status=CIRCUIT_OPEN`, `readiness=DEGRADED`, `failureCount`, `circuitOpenUntil` |
+| Trip cause vs circuit state | `lastFailureReason` reflects the trip-causing failure, not "circuit open" |
+| Pre-call block | Does not overwrite `lastFailureReason` (execute() doesn't call `recordFailure` when blocked) |
+| Post-recovery history | `lastFailureReason` preserved after `recordSuccess()` — history not erased |
+| Forbidden keywords | No `jdbc:`, `password`, `Exception`, `stack`, etc. in diagnostics body for all failure types |
+| Message stability | `safeMessage()` is idempotent; each failure type has a distinct message |
+| Enum name not exposed | `safeMessage()` is human-readable, not the raw enum constant name |
+
+### Test count progression
+
+| Milestone | skadi-semantic | skadi-server | Total |
+|---|---|---|---|
+| F4 complete (baseline) | 574 | 231 | 805 |
+| F5 complete | 574 | 249 | 823 |
 
 ---
 
