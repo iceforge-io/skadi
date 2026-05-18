@@ -286,14 +286,14 @@ class DemoSemanticQueryExecutionFacadeTest {
     // ── 9. Default limit applies ───────────────────────────────────────────────
 
     @Test
-    void defaultLimit_appliedInRenderedSql() {
+    void defaultLimit_appliedInMaterializedSql() {
         var captured = new AtomicReference<String>();
         var f = facadeWith(req -> { captured.set(req.sql()); return completed(req); });
         f.execute(req(GRID_PROMPT));
 
-        assertTrue(captured.get().contains("limit :limit"),
-                "rendered SQL must contain limit placeholder");
-        // Default limit (500) is in params, not in SQL text — verified via renderer tests
+        // After materialization :limit is replaced by the numeric literal
+        assertTrue(captured.get().contains("limit 500"),
+                "materialized SQL must contain numeric limit: " + captured.get());
     }
 
     // ── 10. Configured views are used ────────────────────────────────────────
@@ -372,6 +372,104 @@ class DemoSemanticQueryExecutionFacadeTest {
                     "execution service must be called for: " + prompt);
             assertEquals(ExecutionStatus.COMPLETED, resp.metadata().executionStatus(),
                     "execution should complete for: " + prompt);
+        }
+    }
+
+    // ── 14. Materialized SQL: no :param placeholders reach execution ──────────
+
+    @Test
+    void exposureGrid_submittedSql_hasNoOrgPlaceholder() {
+        var captured = new AtomicReference<String>();
+        var f = facadeWith(req -> { captured.set(req.sql()); return completed(req); });
+        f.execute(req(GRID_PROMPT));
+        assertFalse(captured.get().contains(":org"),
+                "submitted SQL must not contain :org — found: " + captured.get());
+    }
+
+    @Test
+    void exposureGrid_submittedSql_hasNoCurrencyPlaceholder() {
+        var captured = new AtomicReference<String>();
+        var f = facadeWith(req -> { captured.set(req.sql()); return completed(req); });
+        f.execute(req(GRID_PROMPT));
+        assertFalse(captured.get().contains(":currency"),      captured.get());
+    }
+
+    @Test
+    void exposureGrid_submittedSql_hasNoCobDatePlaceholder() {
+        var captured = new AtomicReference<String>();
+        var f = facadeWith(req -> { captured.set(req.sql()); return completed(req); });
+        f.execute(req(GRID_PROMPT));
+        assertFalse(captured.get().contains(":cob_date"),      captured.get());
+    }
+
+    @Test
+    void exposureGrid_submittedSql_hasNoLimitPlaceholder() {
+        var captured = new AtomicReference<String>();
+        var f = facadeWith(req -> { captured.set(req.sql()); return completed(req); });
+        f.execute(req(GRID_PROMPT));
+        assertFalse(captured.get().contains(":limit"),         captured.get());
+    }
+
+    @Test
+    void timeseries_submittedSql_hasNoStartDatePlaceholder() {
+        var captured = new AtomicReference<String>();
+        var f = facadeWith(req -> { captured.set(req.sql()); return completed(req); });
+        f.execute(req(TS_PROMPT));
+        assertFalse(captured.get().contains(":start_date"),    captured.get());
+    }
+
+    @Test
+    void timeseries_submittedSql_hasNoEndDatePlaceholder() {
+        var captured = new AtomicReference<String>();
+        var f = facadeWith(req -> { captured.set(req.sql()); return completed(req); });
+        f.execute(req(TS_PROMPT));
+        assertFalse(captured.get().contains(":end_date"),      captured.get());
+    }
+
+    @Test
+    void timeseries_submittedSql_hasNoRiskClassPlaceholder() {
+        var captured = new AtomicReference<String>();
+        var f = facadeWith(req -> { captured.set(req.sql()); return completed(req); });
+        f.execute(req(TS_PROMPT));
+        assertFalse(captured.get().contains(":risk_class"),    captured.get());
+    }
+
+    @Test
+    void exposureGrid_submittedSql_containsLiteralCib() {
+        var captured = new AtomicReference<String>();
+        var f = facadeWith(req -> { captured.set(req.sql()); return completed(req); });
+        f.execute(req(GRID_PROMPT));
+        assertTrue(captured.get().contains("'CIB'"),
+                "submitted SQL must contain quoted literal 'CIB'");
+    }
+
+    @Test
+    void exposureGrid_submittedSql_containsLiteralUsd() {
+        var captured = new AtomicReference<String>();
+        var f = facadeWith(req -> { captured.set(req.sql()); return completed(req); });
+        f.execute(req(GRID_PROMPT));
+        assertTrue(captured.get().contains("'USD'"),
+                "submitted SQL must contain quoted literal 'USD'");
+    }
+
+    @Test
+    void allSixDemoPrompts_submittedSqlHasNoRemainingPlaceholders() {
+        String[] prompts = {
+            "Show USD delta exposure by legal entity and risk class for CIB on 2026-05-15",
+            "Show the last 30 days of rates DV01 by desk for CIB",
+            "Show vega exposure by risk factor for CIB on 2026-05-15",
+            "Show gamma exposure by desk and currency for CIB on 2026-05-15",
+            "Show delta exposure by desk for CIB on 2026-05-15",
+            "Show rates DV01 history by desk for CIB over the last 30 days"
+        };
+        for (String prompt : prompts) {
+            var captured = new AtomicReference<String>();
+            var f = facadeWith(req -> { captured.set(req.sql()); return completed(req); });
+            f.execute(req(prompt));
+            assertNotNull(captured.get(), "SQL must be captured for: " + prompt);
+            assertFalse(captured.get().contains(":"),
+                    "submitted SQL must contain no colon-param placeholders for: "
+                    + prompt + " — got: " + captured.get());
         }
     }
 
