@@ -286,14 +286,14 @@ class DemoSemanticQueryExecutionFacadeTest {
     // ── 9. Default limit applies ───────────────────────────────────────────────
 
     @Test
-    void defaultLimit_appliedInRenderedSql() {
+    void defaultLimit_appliedInMaterializedSql() {
         var captured = new AtomicReference<String>();
         var f = facadeWith(req -> { captured.set(req.sql()); return completed(req); });
         f.execute(req(GRID_PROMPT));
 
-        assertTrue(captured.get().contains("limit :limit"),
-                "rendered SQL must contain limit placeholder");
-        // Default limit (500) is in params, not in SQL text — verified via renderer tests
+        // After materialization :limit is replaced by the numeric literal
+        assertTrue(captured.get().contains("limit 500"),
+                "materialized SQL must contain numeric limit: " + captured.get());
     }
 
     // ── 10. Configured views are used ────────────────────────────────────────

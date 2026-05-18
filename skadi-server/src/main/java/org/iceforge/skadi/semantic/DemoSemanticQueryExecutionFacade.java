@@ -152,7 +152,7 @@ public final class DemoSemanticQueryExecutionFacade {
 
         // Step 4: Execute via the existing semantic execution seam
         var ctx     = new ExecutionContext(DEMO_PRINCIPAL, null, SOURCE_SYSTEM);
-        var execReq = QueryExecutionRequest.sqlOnly(ctx, rendered.sql(), CacheContract.none());
+        var execReq = QueryExecutionRequest.sqlOnly(ctx, materializedSql, CacheContract.none());
         var result  = executionService.execute(execReq);
 
         // Step 5: Map to response
