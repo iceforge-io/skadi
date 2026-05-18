@@ -1,9 +1,9 @@
 # Skadi — Development Status
 
-> Updated: 2026-05-17
-> Branch: `feature/114-semantic-execution-resilience-integration-tests`
-> Last commit: pending — Lane F F3: semantic execution resilience integration tests — skadi#114
-> Build: ✅ 787 tests passing (skadi-semantic: 556, skadi-server: 231; gateway unchanged)
+> Updated: 2026-05-18
+> Branch: `feature/117-semantic-execution-failure-classification`
+> Last commit: pending — Lane F F4: semantic execution failure classification — skadi#117
+> Build: ✅ 805 tests passing (skadi-semantic: 574, skadi-server: 231; gateway unchanged)
 
 ---
 
@@ -361,8 +361,40 @@ Tests: `ScreenContextModelTest` (35), `Adr012FitnessTest` (21), `SemanticRequest
 | F1 | Semantic execution health, readiness, and circuit-breaker behavior | ✅ | #110 |
 | F2 | Semantic execution readiness endpoint and operator runbook | ✅ | #112 |
 | F3 | Semantic execution resilience integration tests | ✅ | #114 |
+| F4 | Semantic execution failure classification and operator-safe error responses | ✅ | #117 |
 
 **Epic:** #109 — harden the Lane E semantic execution delegation path before buddy-chat, dashboard explanation, or gateway convergence depend on it.
+
+---
+
+## Lane F Completed — F4 Summary
+
+**Issue:** #117 | **Branch:** `feature/117-semantic-execution-failure-classification`
+
+**Lane F F4 scope:** Structured failure classification ensuring every failure path in `SkadiServerQueryExecutionService` returns a stable, secret-free message. Raw exception details remain in structured logs only.
+
+### What was built in F4
+
+| Capability | Key Components | Module |
+|---|---|---|
+| Failure enum | `SemanticExecutionFailure` — 6 values: `DISABLED, CIRCUIT_OPEN, UNAVAILABLE, TIMEOUT, REMOTE_ERROR, UNEXPECTED`; `safeMessage()` and `fromHealthStatus()` methods | `skadi-semantic` |
+| Safe error messages | All 7 failure paths in `SkadiServerQueryExecutionService` updated to return `SemanticExecutionFailure.X.safeMessage()` instead of raw exception messages | `skadi-semantic` |
+| Secret-free CB reasons | `circuitBreaker.recordFailure(reason, ...)` now uses safe messages; raw exception details logged only | `skadi-semantic` |
+| Classification tests | `SemanticExecutionFailureClassificationTest` — 18 tests covering enum values, `fromHealthStatus` mapping, all 6 failure paths, secret-leak prevention, and success path unchanged | `skadi-semantic` |
+
+### Test count progression
+
+| Milestone | skadi-semantic | skadi-server | Total |
+|---|---|---|---|
+| F3 complete (baseline) | 556 | 231 | 787 |
+| F4 complete | 574 | 231 | 805 |
+
+### Lane F F4 non-goals (enforced throughout)
+
+- No `skadi-sql-gateway` changes
+- No SQL generation, LLM, or UI runtime
+- No redesign of `QueryExecutionService`
+- Success path behavior unchanged
 
 ---
 
