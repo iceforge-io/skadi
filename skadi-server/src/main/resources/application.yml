@@ -38,6 +38,13 @@ skadi:
       # Server starts normally when disabled — no contract files are required.
       enabled: false
       locations: []
+    demo:
+      enabled: false
+      execution-mode: disabled
+      datasource-id: default
+      market-risk-view: demo.market_risk.v_market_risk_demo
+      max-rows: 100
+      query-timeout-ms: 30000
 
   aws:
     region: us-east-2
@@ -83,7 +90,6 @@ skadi:
       dbName: skadi_demo
       allowRemote: false
       adminToken: ""   # set to a value if you want token protection
-
 
   jdbc:
     datasources:
